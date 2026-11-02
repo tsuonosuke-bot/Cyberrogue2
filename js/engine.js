@@ -4,6 +4,8 @@
 const SAVE_KEY = 'fixers-cut-run-v1';
 const RENT = 200;
 const LAZARUS_FEE = 100;
+/* ラザロの上位プラン（武装回収）。第2幕から。会費／夜、出動費、回収班の射撃の腕前（＋d10で敵のDVと比べる） */
+const LAZARUS_ARMED = { fee: 300, callout: 1500, aim: 15, act: 2 };
 const BROKER_RATE = 0.2;
 const ROSTER_MAX = 8;
 const LANE = { field: '現場', support: '支援', net: 'ネット' };
@@ -53,7 +55,7 @@ const maxHp = (r) => 11 + stat(r, 'BODY') * 4;
 const traitOf = (r) => TRAITS[r.trait] || {};
 const maxHum = (r) => traitOf(r).humCap || r.base.EMP * 10 + (traitOf(r).humBonus || 0);
 /* 義体の人間性コスト。資質で軽くなる */
-const hlCost = (r, c) => Math.max(1, Math.round(CYBER[c].hl * (traitOf(r).hlMult || 1)));
+const hlCost = (r, c) => Math.max(1, Math.round(CYBER[c].hl * (traitOf(r).hlMult || 1)) - (G && G.run && G.run.bg === 'ripper' ? 1 : 0)); // 闇医者のツテは−1
 const cyberLine = (c) => CYBER[c].line || c;
 /* 義体の枠（ラン中だけ）。部位ごとに2つ、体表だけ1つ。同じ系統の上位モデルは入れ替わるので枠を使わない */
 const CYBER_SLOTS = { nervous: 2, brain: 2, senses: 2, arms: 2, skin: 1, organs: 2 };
@@ -62,7 +64,7 @@ const slotFull = (r, c) => !!(G && G.run) && !r.cyber.some((x) => cyberLine(x) =
 /* 枠がいっぱいのとき、外せば入れられる義体（同じ部位に入っているもの） */
 const swapChoices = (r, c) => (slotFull(r, c) ? r.cyber.filter((x) => CYBER[x].cat === CYBER[c].cat) : []);
 /* そのロールに合う系統か（ROLE_CYBER に同じ系統のモデルがあるか） */
-const cyberFits = (r, c) => ROLE_CYBER[r.role].some((x) => cyberLine(x) === cyberLine(c));
+const cyberFits = (r, c) => ROLE_CYBER[r.role].some((x) => cyberLine(x) === cyberLine(c)) || (CYBER[c].roles || []).includes(r.role);
 /* 同じ系統の上位モデルは下位モデルと入れ替わる。入れられないときは理由を返す。drop は代わりに外す義体 */
 function cyberBlocker(r, c, drop) {
   if (r.cyber.includes(c)) return 'もう入っています';
@@ -180,7 +182,8 @@ function makeStory(key) {
 
 /* ───────── 新規ゲーム・保存 ───────── */
 
-function newGame() {
+/* bg は前歴（run.js の BACKGROUNDS）。opt.corp は企業の元社員の社、opt.roles は寄せ集めの3人のロール */
+function newGame(bg = 'solo', opt = {}) {
   G = {
     v: 2, night: 1, money: 3000, negStreak: 0, cred: 0, rank: 1,
     heat: { mitsukane: 5, verde: 5, hakurou: 5 },
@@ -189,13 +192,10 @@ function newGame() {
     repeats: {}, vouchers: { cyber: 0, intel: 0 }, pending: [], archive: [], nextId: 1,
     storyQueue: ['intro'], awaitEnding: false, ended: null, lastReport: null,
   };
-  const a = makeRunner('solo', { name: 'ジロウ', gender: 'm', origin: 'street', pref: 'any', trait: null });
-  const b = makeRunner('driver', { name: 'サエ', gender: 'f', origin: 'drifter', pref: 'any', trait: null });
-  a.wallet = 200; b.wallet = 100;
-  G.runners.push(a, b);
+  Run.crew(bg, opt);
   World.init(G);
   World.nextNight();
-  Run.start(G);
+  Run.start(G, bg, opt);
   return G;
 }
 
@@ -234,6 +234,7 @@ function migrate(g) {
     r.gear ||= {};
     r.xp ||= {};
     r.trait ??= null;
+    if (r.lazarus === true) r.lazarus = 'basic'; // ラザロのプランを入れる前の保存データ
     // 系統を入れる前に同じ系統を重ねて入れていたら、いちばん上のモデルだけ残す（人間性はそのまま）
     r.cyber = r.cyber.filter((c) => !r.cyber.some((x) => x !== c && cyberLine(x) === cyberLine(c) && CYBER[x].tier > CYBER[c].tier));
     if (r.gender) continue;
@@ -329,6 +330,7 @@ function chooseBranch(i) {
   const ch = CHAPTERS[G.awaitChoice];
   const o = ch && ch.choice.options[i];
   if (!o) return '選択肢が見つかりません';
+  if (G.run && G.run.corp && o.ally !== G.run.corp) return `${CLIENTS[G.run.corp].short}と組むことは、始めから決まっています`;
   G.awaitChoice = null;
   G.flags.ally = o.ally;
   for (const c of CORPS) G.heat[c] = clamp(G.heat[c] + (c === o.ally ? ALLY_HEAT.ally : ALLY_HEAT.others), 0, 100);
@@ -494,7 +496,9 @@ const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${Strin
 function L(ctx, who, text, kind = '', calc = '', lane = ctx.lane) {
   if (ctx.sim) return;
   ctx.clock += rint(1, 4);
-  ctx.log.push({ night: ctx.night, ph: ctx.ph, t: hhmm(ctx.clock), who, text, kind, calc, lane });
+  // 暴走している人の行は、通信で別の色にする
+  const mad = !!(who && ctx.combatState && (ctx.combatState.madNames || []).includes(who));
+  ctx.log.push({ night: ctx.night, ph: ctx.ph, t: hhmm(ctx.clock), who, text, kind, calc, lane, ...(mad ? { mad } : {}) });
 }
 function sub(ctx, text, kind = '') {
   if (ctx.sim) return;
@@ -522,6 +526,7 @@ function check(ctx, m, sk, dv) {
   const stK = SKILL_STAT[sk];
   const sv = m.st[stK], kv = m.sk[sk] || 0;
   const parts = World.checkParts(ctx, m, sk);
+  if (G && G.run) parts.push(...Run.checkParts(ctx, m, sk));
   if (m.perk === 'backdoor' && sk === 'インターフェース') parts.push({ label: ROLES.net.perk.name, v: 2, perk: true });
   if (m.perk === 'getaway' && sk === '運転') parts.push({ label: ROLES.driver.perk.name, v: 3, perk: true });
   const bonus = parts.reduce((a, p) => a + p.v, 0);
@@ -583,37 +588,183 @@ function deathSave(ctx, m) {
     const surgeon = ctx.all.find((x) => x !== m && alive(x) && x.perk === 'surgeon');
     if (surgeon && r >= need - 2) credit(ctx, surgeon, ROLES.med.perk.name);
     L(ctx, m.name, `死亡セーブ d10(${r}) ＜ BODY ${m.st.BODY}${bonus ? `＋${bonus}` : ''}　生きているが動けない`, 'warn');
+    if (!isMad(ctx, m)) armedRescue(ctx, m);
     return;
   }
-  if (m.lazarus) {
+  // 暴走中のランナーはラザロの契約の対象外
+  if (m.lazarus && !isMad(ctx, m)) {
+    if (armedRescue(ctx, m)) return;
     m.rescued = true; m.hp = 1; ctx.lazarus.push(m.id);
     L(ctx, m.name, `死亡セーブ d10(${r}) 失敗。ラザロ救急隊が回収（回収費は報酬額の30%）`, 'warn');
     return;
   }
   m.dead = true;
-  L(ctx, m.name, `死亡セーブ d10(${r}) ≧ ${need}　応答なし`, 'dead');
+  L(ctx, m.name, `死亡セーブ d10(${r}) ≧ ${need}　応答なし${m.lazarus ? '（暴走中はラザロの対象外）' : ''}`, 'dead');
 }
 
+const isMad = (ctx, m) => !!(ctx.combatState && (ctx.combatState.mad || []).includes(m.id));
+/* ラザロの武装回収。死亡セーブに失敗したか、生き延びて動けなくなったときに、1つの依頼で1回だけ出動する。
+   交戦中なら回収班が1ラウンドだけ敵を撃つ。本人はHP半分で運び出され、その依頼から抜ける */
+function armedRescue(ctx, m) {
+  if (m.lazarus !== 'armed' || ctx.armedUsed) return false;
+  ctx.armedUsed = true;
+  (ctx.armed ||= []).push(m.id);
+  m.rescued = true; m.hp = Math.ceil(m.maxHp / 2);
+  L(ctx, m.name, `ラザロの武装回収班が突入。運び出す（出動費${fmt(LAZARUS_ARMED.callout)}cr＋報酬額の30%）`, 'warn');
+  const s = ctx.combatState;
+  if (s) for (let k = 0; k < 2; k++) {
+    const foe = s.foes.find((f) => f.hits > 0 && !f.hidden);
+    if (!foe) break;
+    const r = d(10), total = LAZARUS_ARMED.aim + r;
+    L(ctx, 'ラザロ回収班', `${foe.name}を撃つ`, total >= foe.dv ? 'ok' : 'ng', `腕前 ${LAZARUS_ARMED.aim}＋d10(${r})＝${total} ${total >= foe.dv ? '≧' : '＜'} DV${foe.dv}`);
+    if (total >= foe.dv) { foe.hits -= foe.armored ? 2 : 1; if (foe.boss) bossHit(ctx, foe); }
+  }
+  return true;
+}
+
+/* 交戦の始めの動揺と発作（ラン中だけ）。不安定（16〜30）はd10で1なら動揺し、その交戦は射撃・回避−2。
+   兆候（1〜15）はd10が (16−人間性)÷4 の切り上げ以下なら発作を起こし、その交戦のあいだ暴走する */
+function psychosis(ctx, s, list) {
+  s.mad = []; s.madNames = []; s.shaken = [];
+  if (!(G && G.run)) return;
+  for (const m of list.filter(alive)) {
+    const z = humZone(m.humanity).key;
+    if (z === 'unstable' && d(10) === 1) {
+      s.shaken.push(m.id);
+      L(ctx, m.name, '動揺している（d10で1）。この交戦は射撃・回避−2', 'warn');
+    } else if (z === 'sign') {
+      const r = d(10), need = Math.ceil((16 - m.humanity) / 4);
+      if (r > need) continue;
+      s.mad.push(m.id); s.madNames.push(m.name);
+      L(ctx, m.name, `発作 d10(${r}) ≦ ${need}。暴走した。射撃+2で2回撃つが、もう指示は届かない`, 'mad');
+    }
+  }
+}
+/* 暴走した人が敵を倒すと、標的の企業のヒート+4。同じ依頼で3体倒すと、市警の鎮圧班が向かってくる */
+function madKill(ctx, m) {
+  addHeat(ctx, ctx.job.target, 4);
+  sub(ctx, `${m.name}が過剰な暴力をふるった`, 'ng');
+  ctx.madKills ||= {};
+  ctx.madKills[m.id] = (ctx.madKills[m.id] || 0) + 1;
+  if (ctx.madKills[m.id] >= 3 && !ctx.maxtac) {
+    ctx.maxtac = { id: m.id, name: m.name, choice: null, done: false };
+    sub(ctx, '通報が入った。市警の鎮圧班が向かっている', 'ng');
+  }
+}
+/* 交戦が終わったら、暴走した人は我に返る。人間性−2 */
+function madEnd(ctx, s) {
+  for (const id of s.mad || []) {
+    const m = ctx.all.find((x) => x.id === id);
+    if (!m || m.dead) continue;
+    m.humanity -= 2;
+    ctx.humLoss ||= {};
+    ctx.humLoss[id] = (ctx.humLoss[id] || 0) + 2;
+    L(ctx, m.name, `我に返った。人間性−2（${m.humanity}）`, 'mad');
+  }
+}
+/* 鎮圧班に引き渡す。その人は依頼から抜け、ランからも抜ける（死亡ではなく拘束）。ラザロは呼ばない */
+function handOver(ctx, id, text) {
+  const m = ctx.all.find((x) => x.id === id);
+  if (!m || m.dead || m.custody) return;
+  m.custody = true; m.down = true; m.rescued = true;
+  (ctx.custody ||= []).push(id);
+  L(ctx, m.name, text, 'mad');
+}
+/* 市警の鎮圧班。隊員2人（第3幕は3人）、耐久2、DV・攻撃はその幕の基準値+4、ダメージ4d6+4 */
+function squadFoes(ctx) {
+  const a = G.run ? G.run.act : ctx.rank, E = RANK_ENEMY[a];
+  return Array.from({ length: a >= 3 ? 3 : 2 }, () => ({ name: '鎮圧班', hits: 2, dv: E.dv + 4, atk: E.atk + 4, dice: 4, plus: 4 }));
+}
+
+/* 交戦の敵。群れは2体多く、DV・攻撃−1でダメージ2d6。装甲兵・狙撃手・敵ネットランナーはDV・攻撃+2。装甲兵は2発で倒れる */
+function makeFoes(ctx, type, n, name, dv) {
+  const E = RANK_ENEMY[ctx.rank];
+  const count = type === 'swarm' ? n + 2 : n;
+  return Array.from({ length: count }, () => ({
+    name, hits: type === 'armored' ? 2 : 1, armored: type === 'armored', sniper: type === 'sniper',
+    dv: dv ?? E.dv + (type === 'swarm' ? -1 : type === 'standard' ? 0 : 2),
+    atk: E.atk + (type === 'swarm' ? -1 : type === 'standard' ? 0 : 2),
+    dice: type === 'swarm' ? 2 : E.dice, plus: E.plus,
+  }));
+}
+/* 幕のボス（RUN_BOSSES）と護衛。ボスが先頭、指揮官は最後に並ぶ（見抜けば先頭へ）。ボスの耐久は挑み直しても戻らない */
+function bossFoes(ctx, B) {
+  const E = RANK_ENEMY[ctx.rank];
+  const boss = { name: B.name, boss: true, hits: ctx.bossLeft ?? B.hits, dv: E.dv + 2, atk: E.atk + 2 + (B.drug || 0), dice: E.dice, plus: E.plus + 2,
+    attacks: B.attacks || 1, armored: !!B.armored, hidden: !!B.hidden, noShoot: !!B.noShoot };
+  const foes = [boss, ...(B.escort || []).flatMap((e) => makeFoes(ctx, e.type, e.n, e.name))];
+  if (B.commander) foes.push({ name: `${B.commander.name}（指揮官）`, commander: true, hits: 2, dv: E.dv, atk: E.atk, dice: E.dice, plus: E.plus });
+  ctx.bossLeft = boss.hits;
+  return foes;
+}
+function bossHit(ctx, foe) {
+  ctx.bossLeft = Math.max(0, foe.hits);
+  if (foe.hits <= 0) ctx.bossDown = true;
+}
+/* ボスとの交戦の始め：取引・説得・隠れ場所・指揮官。交戦が終われば true、続くなら undefined */
+function bossOpening(ctx, s, B) {
+  const boss = s.foes.find((f) => f.boss);
+  const talkers = ctx.team.field.concat(ctx.team.support);
+  const calm = (text) => { for (const f of s.foes) f.hits = 0; ctx.bossLeft = 0; ctx.combatState = null; L(ctx, '', text, 'ok'); return true; };
+  if (B.deal && G.gangRelation >= B.deal.rel) {
+    const m = best(talkers, '説得'), c = m && check(ctx, m, '説得', B.deal.dv);
+    if (c) {
+      L(ctx, m.name, `${B.name}に取引を持ちかける`, c.ok ? 'ok' : 'ng', c.calc);
+      if (c.ok) { ctx.costs.push([`${B.name}との取引`, -B.deal.cost]); return calm(`${fmt(B.deal.cost)}crで話がついた。交戦はなし`); }
+      sub(ctx, '取引は断られた', 'ng');
+    }
+  }
+  if (B.talk) {
+    const m = best(talkers, '説得'), c = m && check(ctx, m, '説得', B.talk);
+    if (c) {
+      L(ctx, m.name, `${B.name}に呼びかける`, c.ok ? 'ok' : 'ng', c.calc);
+      if (c.ok) { ctx.spared = true; return calm(`${B.name}が正気に戻った。撃たずに終わった`); }
+      sub(ctx, '声は届かなかった', 'ng');
+    }
+  }
+  if (B.hidden && boss && boss.hits > 0) {
+    const m = best(ctx.team.field, '知覚'), c = m && check(ctx, m, '知覚', B.hidden);
+    if (c) L(ctx, m.name, `${B.name}の隠れ場所を探す`, c.ok ? 'ok' : 'ng', c.calc);
+    if (c && c.ok) boss.hidden = false;
+    else sub(ctx, `${B.name}が見つからない。現場からは撃てない`, 'ng');
+  }
+  if (B.commander) {
+    const cmd = s.foes.find((f) => f.commander), m = best(ctx.team.field, '知覚'), c = m && check(ctx, m, '知覚', B.commander.spot);
+    if (c) L(ctx, m.name, `指揮しているのは誰か見抜く`, c.ok ? 'ok' : 'ng', c.calc);
+    if (c && c.ok) { s.foes.splice(s.foes.indexOf(cmd), 1); s.foes.unshift(cmd); sub(ctx, `${cmd.name}を見抜いた。先に狙う`, 'ok'); }
+    else sub(ctx, `${cmd.name}が後ろで指揮している。ほかの敵の攻撃+1`, 'ng');
+  }
+  return undefined;
+}
+
+/* o.rb は幕のボス（RUN_BOSSES のキー）、o.boss は元部下などの単独のボス */
 function combat(ctx, n, label, o = {}) {
-  const E = RANK_ENEMY[ctx.rank], type = o.enemyType || 'standard';
+  const type = o.enemyType || 'standard', B = o.rb ? RUN_BOSSES[o.rb] : null;
   const fighters = () => (o.chase ? ctx.team.field.concat(ctx.team.support) : ctx.team.field).filter(alive);
   let s = ctx.combatState;
   if (!s) {
-    const count = type === 'swarm' ? n + 2 : n;
-    const foes = o.boss ? [{...o.boss}] : Array.from({length:count},()=>({
-      name:World.enemies[type] || label, hits:type==='armored'?2:1,
-      dv:o.dv ?? E.dv+(type==='swarm'?-1:type==='standard'?0:2),
-      atk:E.atk+(type==='swarm'?-1:type==='standard'?0:2),
-      dice:type==='swarm'?2:E.dice,plus:E.plus}));
-    s = ctx.combatState = {n,label,o,foes,round:0,stage:'start',enemy:0,player:0,shot:0,hacked:false};
-    L(ctx,'',label+'と交戦：'+(World.enemies[type]||label)+' '+count+'体','info');
+    const foes = o.maxtac ? squadFoes(ctx) : B ? bossFoes(ctx, B) : o.boss ? [{ ...o.boss, boss: true }] : makeFoes(ctx, type, n, World.enemies[type] || label, o.dv);
+    s = ctx.combatState = {n,label,o,foes,round:0,stage:'start',enemy:0,player:0,shot:0,eshot:0,hacked:false};
+    L(ctx,'',o.maxtac ? `鎮圧班と交戦：隊員${foes.length}人（耐久2、DV${foes[0].dv}・攻撃${foes[0].atk}・4d6+4）` : B ? `${label}：${B.name}（耐久${foes[0].hits}）${foes.length > 1 ? `と護衛${foes.length - 1}体` : ''}` : label+'と交戦：'+(World.enemies[type]||label)+' '+foes.length+'体','info');
   }
-  const end = (ok, reason) => { ctx.combatState=null; if(reason)abort(ctx,reason); else L(ctx,'',label+'を制圧','ok'); return ok; };
+  s.eshot ??= 0;
+  const bossOf = () => s.foes.find(f=>f.boss);
+  const end = (ok, reason) => {
+    madEnd(ctx, s);
+    if (o.maxtac) { if (ok) { ctx.wanted = true; L(ctx, '', '鎮圧班を退けた。この幕のあいだ、市警の手配で全依頼の敵+1', 'warn'); } else handOver(ctx, o.maxtac, '鎮圧班に連れていかれた'); }
+    ctx.combatState=null; if(reason)abort(ctx,reason); else if(!o.maxtac)L(ctx,'',B ? `${B.name}を倒した` : label+'を制圧','ok'); return ok;
+  };
+  const shooters = o.chase ? ctx.team.field.concat(ctx.team.support) : ctx.team.field;
+  const mad = (m) => (s.mad || []).includes(m.id);
+  // 幕のボスが倒れたら、護衛は散る
+  const won = () => !s.foes.some(f=>f.hits>0) || (B && bossOf().hits<=0);
   while (true) {
     if (s.stage==='start') {
       s.stage=o.ambush?'enemy':'player';
       s.ambush=!!o.ambush;
-      if(type==='sniper') {
+      if (B && !s.opened) { s.opened = true; if (bossOpening(ctx, s, B)) return true; }
+      if (!s.rolled) { s.rolled = true; psychosis(ctx, s, shooters); }
+      if(s.foes.some(f=>f.sniper&&f.hits>0)) {
         const scout=best(ctx.all,'知覚'),c=scout&&check(ctx,scout,'知覚',18);
         if(c&&c.ok)L(ctx,scout.name,'狙撃手を先に発見。先制射撃を防いだ','ok',c.calc);
         else if(fighters().length){const t=pick(fighters());L(ctx,t.name,'狙撃手の先制射撃','ng');hit(ctx,t,roll(3,6)+5,false);}
@@ -622,23 +773,39 @@ function combat(ctx, n, label, o = {}) {
     }
     if(s.stage==='player') {
       const list=o.chase?ctx.team.field.concat(ctx.team.support):ctx.team.field;
-      while(s.player<list.length) {
+      shots: while(s.player<list.length) {
         const m=list[s.player];
         if(!alive(m)){s.player++;s.shot=0;continue;}
-        while(s.shot<(m.perk==='double'?2:1)) {
+        while(s.shot<(m.perk==='double'||mad(m)?2:1)) { // 暴走は二連射と重ならない
           s.shot++;
-          const foe=s.foes.find(f=>f.hits>0);if(!foe)return end(true);
+          const foe=s.foes.find(f=>f.hits>0&&!f.hidden);
+          if(!foe){ if(won()) return end(true); s.player=list.length; break shots; } // 隠れたボスしか残っていない
           const c=check(ctx,m,'射撃',foe.dv);L(ctx,m.name,foe.name+'を攻撃',c.ok?'ok':'ng',c.calc);
-          if(c.ok){const weak=type==='armored'&&(ctx.all.some(x=>alive(x)&&x.role==='tech')||m.ap);
-            if(weak&&m.ap&&!ctx.all.some(x=>alive(x)&&x.role==='tech'))credit(ctx,m,'徹甲ライフル');
+          if(c.ok){const tech=ctx.all.some(x=>alive(x)&&x.role==='tech'),weak=foe.armored&&(tech||m.ap);
+            if(weak&&m.ap&&!tech)credit(ctx,m,'徹甲ライフル');
             foe.hits-=weak?2:1;
-            if(foe.hits<=0){m.kills++;if(s.shot===2)credit(ctx,m,ROLES.solo.perk.name);if(m.humanity<=15&&!m.nonlethal&&rnd()<.35){addHeat(ctx,ctx.job.target,4);sub(ctx,m.name+'が過剰な暴力をふるった','ng');}}
-            else sub(ctx,'装甲兵はまだ動く。テックか徹甲ライフルがあれば弱点を突ける','warn');}
+            if(foe.boss)bossHit(ctx,foe);
+            if(foe.hits<=0){m.kills++;if(s.shot===2&&!mad(m))credit(ctx,m,ROLES.solo.perk.name);
+              if(mad(m))madKill(ctx,m); // 暴走中は確実に過剰な暴力。テーザーでも防げない
+              else if(m.humanity<=15&&!m.nonlethal&&rnd()<.35){addHeat(ctx,ctx.job.target,4);sub(ctx,m.name+'が過剰な暴力をふるった','ng');}
+              if(won())return end(true);}
+            else if(foe.boss)sub(ctx,`${foe.name}の耐久 残り${foe.hits}${foe.armored&&!weak?'（テックか徹甲ライフルがあれば2削れる）':''}`,'warn');
+            else if(foe.armored)sub(ctx,'装甲兵はまだ動く。テックか徹甲ライフルがあれば弱点を突ける','warn');}
         }
         s.player++;s.shot=0;
       }
-      if(!s.foes.some(f=>f.hits>0))return end(true);
-      s.stage='enemy';s.enemy=0;s.hacked=false;
+      // ネット担当がボスの回線を焼く（電気屋）
+      if (B && B.hack && !s.netDone) {
+        s.netDone = true;
+        const boss=bossOf(), nr=ctx.team.net.find(alive);
+        if (boss.hits>0 && nr) {
+          const c=check(ctx,nr,'インターフェース',boss.dv);
+          L(ctx,nr.name,`${boss.name}の回線を焼く`,c.ok?'ok':'ng',c.calc,'net');
+          if (c.ok) { boss.hits--; bossHit(ctx,boss); if (boss.hits>0) sub(ctx,`${boss.name}の耐久 残り${boss.hits}`,'warn'); }
+        }
+      }
+      if(won())return end(true);
+      s.stage='enemy';s.enemy=0;s.eshot=0;s.hacked=false;
     }
     if(s.stage==='enemy') {
       if(type==='hacker'&&!s.hacked&&s.foes.some(f=>f.hits>0)) {
@@ -647,19 +814,67 @@ function combat(ctx, n, label, o = {}) {
         else {ctx.mods.extraEnemy=Math.max(1,ctx.mods.extraEnemy);L(ctx,'','敵ネットランナーが増援を呼んだ','ng');}
         if(ctx.alert)return null;
       }
+      if(B&&B.ice&&!s.hacked&&bossOf().hits>0) {
+        s.hacked=true;const boss=bossOf(),nr=ctx.team.net.find(alive);
+        if(nr){const c=check(ctx,nr,'インターフェース',boss.atk);L(ctx,nr.name,`${boss.name}のICE攻撃`,c.ok?'ok':'ng',c.calc,'net');if(!c.ok)iceHit(ctx,nr,roll(2,6));}
+        else if(fighters().length){const t=pick(fighters());L(ctx,t.name,`${boss.name}のICEが義体を焼く`,'ng');hit(ctx,t,roll(2,6),true);}
+        if(ctx.alert)return null;
+      }
+      // 指揮官が生きているあいだ、ほかの敵の攻撃+1
+      const cmd=s.foes.some(f=>f.commander&&f.hits>0);
       while(s.enemy<s.foes.length) {
-        const foe=s.foes[s.enemy++];if(foe.hits<=0)continue;
+        const foe=s.foes[s.enemy];
+        if(foe.hits<=0||foe.noShoot){s.enemy++;s.eshot=0;continue;}
+        // 最後の1発を撃つ前にカーソルを進める（被弾で中断しても、同じ攻撃は繰り返さない）
+        if(++s.eshot>=(foe.attacks||1)){s.enemy++;s.eshot=0;}
         const targets=fighters();if(!targets.length)break;
-        const t=pick(targets),c=check(ctx,t,'回避',foe.atk);
+        // 鎮圧班は暴走した人を先に狙う
+        const hunted=o.maxtac&&targets.find(x=>x.id===o.maxtac);
+        const t=hunted||pick(targets),c=check(ctx,t,'回避',foe.atk+(cmd&&!foe.commander?1:0));
         if(!c.ok){L(ctx,t.name,foe.name+'の攻撃をかわせない','ng',c.calc);hit(ctx,t,roll(foe.dice,6)+foe.plus,false);}
         if(ctx.alert)return null;
       }
+      if(won())return end(true); // ラザロの回収班が最後の敵を倒したとき
       if(!fighters().length)return end(false,label+'との交戦で全員が倒れた。撤退');
       if(!s.ambush)s.round++;s.ambush=false;
+      // 回収屋の癖：決められたラウンドで倒しきれないと、目標を1つ持ち去る
+      if (B && B.seize && s.round>=B.seize) {
+        madEnd(ctx, s);
+        ctx.combatState=null;
+        if (ctx.goals>0) { ctx.goals--; ctx.seized=true; ctx.mods.chase=true; L(ctx,'',`${B.name}が目標を1つ持ち去った。逃走は追撃戦になる。振り切れば取り返せる`,'ng'); }
+        else L(ctx,'',`${B.name}は引き上げた`,'warn');
+        return true;
+      }
+      // ラン中の元部下は、3ラウンドで倒しきれないと鎮圧班が割り込んで片付ける（依頼は失敗、ヒートは上がらない）
+      if(s.round>=3&&o.boss&&ctx.job.deserter&&G.run){ctx.suppressed=true;return end(false,`鎮圧班が割り込んで、${o.boss.name}を片付けた`);}
       if(s.round>=3)return end(false,label+'を押し切れず撤退');
-      s.stage='player';s.player=0;s.shot=0;
+      s.stage='player';s.player=0;s.shot=0;s.netDone=false;
     }
   }
+}
+
+/* ネットのボス（保守主任）。黒ICEを1層ずつ破り、抜けなければ現場から回線を物理的に切る。破った層は挑み直しても戻らない */
+function netBoss(ctx, p, B) {
+  let left = ctx.bossLeft ?? B.hits;
+  const nr = ctx.team.net.find(alive);
+  L(ctx, '', `${p.l}：${B.name}の黒ICE（残り${left}層）`, 'info', '', 'net');
+  if (!nr) L(ctx, '', 'ネットの担当がいない。回線を物理的に切るしかない', 'warn', '', 'net');
+  while (nr && alive(nr) && left > 0) {
+    const k = B.hits - left, c = check(ctx, nr, 'インターフェース', B.layers[k]);
+    L(ctx, nr.name, `黒ICE 第${k + 1}層`, c.ok ? 'ok' : 'ng', c.calc, 'net');
+    if (!c.ok) { sub(ctx, '黒ICEの逆流', 'ng'); iceHit(ctx, nr, roll(2, 6)); break; }
+    left--;
+  }
+  for (let k = 0; left > 0 && k < 3; k++) {
+    const m = best(ctx.team.field.concat(ctx.team.support), '電子'); if (!m) break;
+    const c = check(ctx, m, '電子', B.cut);
+    L(ctx, m.name, k ? '回線を切る（やり直し）' : `${B.name}の回線を物理的に切る`, c.ok ? 'ok' : 'ng', c.calc);
+    if (c.ok) left = 0;
+  }
+  ctx.bossLeft = left;
+  if (left > 0) return abort(ctx, `${B.name}を止められず撤退`);
+  ctx.bossDown = true;
+  L(ctx, '', `${B.name}の回線が落ちた`, 'ok');
 }
 
 function rest(ctx, p) {
@@ -728,7 +943,7 @@ function fieldPhase(ctx, p) {
       if (ctx.mods.chase) {
         ctx.mods.chase = false;
         ctx.afterCombat = 'escapeDrive';
-        L(ctx, '', '警報で追手がかかった。追撃戦', 'ng');
+        L(ctx, '', ctx.seized ? '持ち去った回収班を追う。追撃戦' : '警報で追手がかかった。追撃戦', 'ng');
         if (!combat(ctx, 2, '追手', { chase: true })) return;
         ctx.afterCombat = null;
       }
@@ -736,6 +951,7 @@ function fieldPhase(ctx, p) {
       const c = check(ctx, m, '運転', p.dv);
       L(ctx, m.name, p.l, c.ok ? 'ok' : 'ng', c.calc);
       if (!c.ok) { ctx.afterCombat = null; sub(ctx, '振り切れない', 'ng'); combat(ctx, 2, '追いすがる追手', { chase: true }); }
+      else if (ctx.seized) { ctx.seized = false; ctx.goals++; sub(ctx, '追いついて、持ち去られた目標を取り返した', 'ok'); }
       break;
     }
     case 'drive': {
@@ -763,7 +979,12 @@ function fieldPhase(ctx, p) {
       sub(ctx, 'うまくいかなかった。報酬−40%', 'ng');
       break;
     }
-    case 'boss': combat(ctx, 1, p.l, { boss: ctx.job.boss }); break;
+    case 'boss': {
+      const B = p.boss && RUN_BOSSES[p.boss];
+      if (B && B.layers) netBoss(ctx, p, B);
+      else combat(ctx, 1, p.l, B ? { rb: p.boss } : { boss: ctx.job.boss });
+      break;
+    }
   }
 }
 
@@ -794,6 +1015,7 @@ function netFail(ctx, p) {
 
 // Interactive contexts contain only serializable data; no future rolls occur while waiting.
 function requestDecision(ctx, reason) {
+  if (ctx.combatState && (ctx.combatState.mad || []).length) return; // 暴走していると、重傷や警報でも止められない
   if (ctx.interactive && !ctx.aborted && ctx.decisions < 2) ctx.alert = ctx.alert || reason;
 }
 function missionContext(job, routeIdx, team, sim, interactive = false) {
@@ -801,7 +1023,8 @@ function missionContext(job, routeIdx, team, sim, interactive = false) {
   const route = job.routes[routeIdx];
   const ctx = { job, routeIdx, rank: job.rank, team, sim, interactive,
     log: [], heat: {}, lazarus: [], mods: {extraEnemy:0, gateUp:0, chase:false},
-    rewardMult:1, aborted:false, reason:'', goals:0, need:0, night:1, clock:1320, checks:{}, xp:{}, credit:{},
+    rewardMult:1, aborted:false, reason:'', goals:0, need:0, night:1, clock:1320, checks:{}, xp:{}, credit:{}, costs:[], bossLeft:job.bossLeft,
+    humLoss:{}, madKills:{}, custody:[], armed:[], maxtac:null,
     ph:0, lane:'net', stage:0, decisions:0, alert:null, waiting:false };
   ctx.all = teamIds(team);
   World.context(ctx);
@@ -826,6 +1049,9 @@ function runMission(ctx, nightLimit = Infinity) {
       const s=ctx.combatState;
       const ok=combat(ctx,s.n,s.label,s.o);
       if(ok && ctx.afterCombat === 'escapeDrive') { ctx.afterCombat=null; fieldPhase(ctx,p); }
+      else if(ok && ctx.afterCombat === 'phase') { ctx.afterCombat=null; fieldPhase(ctx,p); } // 鎮圧班を退けたあとの交戦
+    } else if (p && ctx.stage === 1 && squadArrives(ctx, p)) {
+      if (ctx.waiting) return ctx;
     } else if (p) { if (ctx.stage === 0) netPhase(ctx,p); else fieldPhase(ctx,p); }
     // Combat keeps its own cursor if interrupted immediately after a hit.
     if (!ctx.combatState) {
@@ -841,9 +1067,37 @@ function runMission(ctx, nightLimit = Infinity) {
   ctx.finished = true;
   return ctx;
 }
+/* 暴走した人が3体倒した依頼では、次の交戦の前に鎮圧班が到着する。続行／撤退と同じように止まって、
+   引き渡す・かばう・撤退するを選ぶ（見積もりでは引き渡す）。この夜のフェーズを処理したら true */
+const FIGHTS = (p) => p.t === 'combat' || (p.t === 'boss' && !(p.boss && RUN_BOSSES[p.boss].layers));
+function squadArrives(ctx, p) {
+  const mt = ctx.maxtac;
+  if (!mt || mt.done || !FIGHTS(p)) return false;
+  const m = ctx.all.find((x) => x.id === mt.id);
+  if (!m || m.dead || m.custody) { mt.done = true; return false; }
+  if (!mt.choice) {
+    if (ctx.interactive && !ctx.sim) {
+      ctx.alert = `${mt.name}を追って、市警の鎮圧班が到着した`;
+      ctx.decision = 'maxtac'; ctx.waiting = true;
+      L(ctx, '', ctx.alert, 'mad');
+      return true;
+    }
+    mt.choice = 'handover';
+  }
+  mt.done = true;
+  if (mt.choice === 'retreat') { abort(ctx, '鎮圧班を前に、全員で引いた'); return true; }
+  if (mt.choice === 'handover') { handOver(ctx, mt.id, '鎮圧班に引き渡した。連れていかれた'); return false; }
+  // かばう：鎮圧班と交戦し、勝てば予定の交戦に進む
+  ctx.afterCombat = 'phase';
+  const ok = combat(ctx, 0, '鎮圧班', { maxtac: mt.id, chase: true });
+  if (ok === true) { ctx.afterCombat = null; fieldPhase(ctx, p); }
+  return true;
+}
 function resolveMission(job, routeIdx, team, sim) {
   return runMission(missionContext(job,routeIdx,team,sim));
 }
+/* proceed は続行なら true、撤退なら false。鎮圧班が来たときは 'handover'・'protect'・'retreat' */
+const SQUAD_CHOICE = { handover: '引き渡す', protect: 'かばう', retreat: '撤退する' };
 function missionDecision(uid, proceed) {
   const ms = G.missions.find(m=>m.uid===uid);
   if (!ms || !ms.progress || !ms.progress.waiting) return;
@@ -851,6 +1105,13 @@ function missionDecision(uid, proceed) {
   ctx.all=teamIds(ctx.team);
   ms.shownLog = ctx.log.length;
   ctx.waiting = false; ctx.alert = null;
+  if (ctx.decision === 'maxtac') {
+    ctx.decision = null;
+    ctx.maxtac.choice = SQUAD_CHOICE[proceed] ? proceed : 'handover';
+    L(ctx, '', `フィクサーの指示：${SQUAD_CHOICE[ctx.maxtac.choice]}`, 'warn');
+    save();
+    return;
+  }
   L(ctx,'',proceed ? 'フィクサーの指示：続行' : 'フィクサーの指示：撤退', 'warn');
   if (!proceed) { abort(ctx,'フィクサーの判断で撤退'); ctx.combatState = null; }
   save();
@@ -899,20 +1160,27 @@ function campaignDone(key, out) {
 
 function settle(ms, out) {
   const job = ms.job, res = ms.result;
-  const s = { runBoss: !!job.runBoss, title: job.title, route: job.routes[ms.routeIdx].name, success: res.success, reason: res.reason, lines: [], net: 0, deaths: [], deadRunners: [], notes: [], cred: 0, growth: [], credits: [] };
+  const s = { runBoss: !!job.runBoss, bossLeft: res.bossLeft, bossDown: !!res.bossDown, title: job.title, route: job.routes[ms.routeIdx].name, success: res.success, reason: res.reason, lines: [], net: 0, deaths: [], deadRunners: [], notes: [], cred: 0, growth: [], credits: [] };
   const members = res.members;
   const n = members.length || 1;
   for (const m of members) {
     const r = getR(m.id);
     if (!r) continue;
     if (m.dead) { s.deadRunners.push(clone(r)); killRunner(r, job.title); s.deaths.push(r.name); continue; }
+    if ((res.custody || []).includes(m.id)) {
+      leaveRunner(r);
+      if (G.run) (G.run.custody ||= []).push({ name: r.name, role: r.role, night: G.night });
+      s.notes.push(`${r.name}は鎮圧班に拘束された。ランから抜ける`);
+      continue;
+    }
     r.hp = m.hp; r.armor = m.armor; r.status = 'idle'; r.jobs++; r.kills += m.kills;
+    r.humanity -= (res.humLoss || {})[m.id] || 0;
     for (const [sk, n] of Object.entries((res.xp || {})[m.id] || {})) {
       const ups = gainXp(r, sk, n);
       if (ups.length) s.growth.push(`${r.name}の${sk}が ${ups[0] - 1}→${ups[ups.length - 1]} に上がった`);
     }
     if (m.down && !m.rescued) s.notes.push(`${r.name}は重体で戻った（HP 0）`);
-    if (m.rescued) s.notes.push(`${r.name}はラザロに回収された（HP 1）`);
+    if (m.rescued) s.notes.push((res.armed || []).includes(m.id) ? `${r.name}はラザロの武装回収班に運び出された（HP ${m.hp}）` : `${r.name}はラザロに回収された（HP 1）`);
     if (job.rank >= 2 && res.success) {
       r.elite++;
       if (!r.perk && r.elite >= 3) { r.perk = true; s.notes.push(`${r.name}が「${ROLES[r.role].perk.name}」を覚えた：${ROLES[r.role].perk.desc}`); }
@@ -927,11 +1195,21 @@ function settle(ms, out) {
     if (r && label === ROLES[r.role].perk.name) r.perkUses = (r.perkUses || 0) + n;
   }
   s.credits.sort((a, b) => b.n - a.n);
+  for (const [label, v] of res.costs || []) { G.money += v; s.net += v; s.lines.push([label, v]); }
+  if (res.spared) G.flags.spared = true;
+  const recover = Math.round(Math.max(job.payout, 2000) * 0.3);
   if (res.lazarus.length) {
-    const fee = Math.round(Math.max(job.payout, 2000) * 0.3) * res.lazarus.length;
+    const fee = recover * res.lazarus.length;
     G.money -= fee; s.net -= fee;
     s.lines.push([`ラザロ回収費 ×${res.lazarus.length}`, -fee]);
   }
+  if ((res.armed || []).length) {
+    const fee = (LAZARUS_ARMED.callout + recover) * res.armed.length;
+    G.money -= fee; s.net -= fee;
+    s.lines.push(['ラザロ武装回収（出動費＋回収費）', -fee]);
+  }
+  if (res.wanted && G.run) { G.run.wanted = G.run.act; s.notes.push('市警の手配：この幕のあいだ、全依頼の交戦で敵+1'); }
+  if (G.run && job.deserter) Run.deserterDone(job, res, s);
   if (res.success) {
     const amount = Math.round(job.payout * Math.max(0.2, res.rewardMult));
     const fee = Math.round(amount * BROKER_RATE);
@@ -957,13 +1235,13 @@ function settle(ms, out) {
     G.successes++;
     if (job.intro) { G.rank++; s.notes.push(`評判ランク ${G.rank}「${RANK_NAME[G.rank]}」に上がった。上の依頼が回ってくる`); }
     if (job.campaign) campaignDone(job.campaign, out);
-    if (!(job.campaign && CHAPTERS[job.campaign].ending)) { G.pending.push(G.run ? Run.makeReward(job) : makeBonus(job)); s.bonus = true; }
+    if (!(job.campaign && CHAPTERS[job.campaign].ending)) { G.pending.push(G.run ? Run.makeReward(job, res) : makeBonus(job)); s.bonus = true; }
   } else {
     G.cred = Math.max(0, G.cred - 2); s.cred = -2;
     for (const m of members) { const r = getR(m.id); if (r && r.contract === 'exclusive') r.loyalty = clamp(r.loyalty - 3, 0, 100); }
   }
-  const heat = { ...res.heat };
-  if (job.target && CLIENTS[job.target].kind === 'corp') heat[job.target] = (heat[job.target] || 0) + Math.round(job.heat * (res.success ? 1 : 0.5));
+  const heat = res.suppressed ? {} : { ...res.heat }; // 鎮圧班が片付けた元部下の依頼では、ヒートは上がらない
+  if (!res.suppressed && job.target && CLIENTS[job.target].kind === 'corp') heat[job.target] = (heat[job.target] || 0) + Math.round(job.heat * (res.success ? 1 : 0.5));
   if (CLIENTS[job.client].kind === 'corp') for (const c of CORPS) if (c !== job.client && c !== job.target) heat[c] = (heat[c] || 0) + job.rank * 4;
   for (const c in heat) {
     G.heat[c] = clamp(G.heat[c] + heat[c], 0, 100);
@@ -998,8 +1276,9 @@ function interlude(out) {
 function upkeepItems() {
   const items = [['隠れ家代', RENT], ...World.upkeep()];
   for (const r of G.runners) if (r.contract === 'exclusive') items.push([`${r.name}の手当`, r.stipend]);
-  const laz = G.runners.filter((r) => r.lazarus).length;
+  const laz = G.runners.filter((r) => r.lazarus && r.lazarus !== 'armed').length, armed = G.runners.filter((r) => r.lazarus === 'armed').length;
   if (laz) items.push([`ラザロ会費 ×${laz}`, laz * LAZARUS_FEE]);
+  if (armed) items.push([`ラザロ武装回収 ×${armed}`, armed * LAZARUS_ARMED.fee]);
   for (const l of G.loans) items.push([`${l.label}（残り${l.nightsLeft}夜）`, l.perNight]);
   return items;
 }
@@ -1012,16 +1291,17 @@ function desert(r, out) {
     dv: clamp(stat(r, 'REF') + skill(r, '回避') + 3, 13, 21),
     atk: clamp(stat(r, 'REF') + skill(r, '射撃') + 3, 13, 21), dice: 4, plus: 2,
   };
-  const rank = Math.max(2, G.rank);
+  const rank = G.run ? G.run.act : Math.max(2, G.rank);
   const tpl = {
     id: 'deserter_' + r.id, rank, title: `元部下の${r.name}を止める`, client: 'resident', target: null, deserter: true,
-    nights: 1, payout: 9000, cred: 8, heat: 0, req: ['solo'], boss,
+    nights: 1, payout: G.run ? 3000 * rank : 9000, cred: 8, heat: 0, req: ['solo'], boss,
     desc: `ヒューマニティが尽きた${r.name}が、屋台街で暴れている。義体を入れたのは、あなただ。`,
     routes: [
       { name: '屋台街', note: '人混みの中で', field: [S(15, '足取りを追う'), H(C(2, '巻き込まれた用心棒')), _, B(r.name), O('決着')], net: N5() },
       { name: '寝床', note: '帰ってくるのを待つ', field: [_, H(T(15, '仕掛けられた罠')), R('向かいの部屋'), B(r.name), O('決着')], net: N5() },
     ],
   };
+  if (G.run) return Run.addDeserter(r, tpl, out);
   const j = addJob(tpl, true);
   j.expires = G.night + 5;
   out.events.push({ kind: 'ng', text: `${r.name}のヒューマニティが0になった。隠れ家から姿を消し、依頼盤に「${r.name}を止める」依頼が載った` });
@@ -1067,12 +1347,14 @@ function endNight() {
       const rt = ms.job.routes[ms.routeIdx];
       out.pending = true;
       out.comms.push({uid:ms.uid, title:ms.job.title, route:rt.name, k:ctx.night, of:ms.job.nights,
-        phases:rt, intel:ms.job.intel, pending:true, reason:ctx.alert,
+        phases:rt, intel:ms.job.intel, pending:true, reason:ctx.alert, kind:ctx.decision || null, who:ctx.maxtac && ctx.maxtac.name,
         lines:ctx.log.slice(ms.shownLog || 0), ends:false});
       save(); return out;
     }
     if (ctx.finished) ms.result = {success:ctx.success,reason:ctx.reason,log:ctx.log,heat:ctx.heat,
-      lazarus:ctx.lazarus,rewardMult:ctx.rewardMult,endNight:ctx.endNight,members:teamIds(ctx.team),xp:ctx.xp,credit:ctx.credit};
+      lazarus:ctx.lazarus,rewardMult:ctx.rewardMult,endNight:ctx.endNight,members:teamIds(ctx.team),xp:ctx.xp,credit:ctx.credit,
+      costs:ctx.costs,bossLeft:ctx.bossLeft,bossDown:!!ctx.bossDown,spared:!!ctx.spared,
+      humLoss:ctx.humLoss||{},custody:ctx.custody||[],armed:ctx.armed||[],wanted:!!ctx.wanted,suppressed:!!ctx.suppressed};
   }
   World.beforeNight(out);
   const heatBefore = { ...G.heat };
@@ -1124,7 +1406,7 @@ function endNight() {
     }
     if (r.humanity <= 0) { desert(r, out); continue; }
     if (r.contract === 'commission' && r.status === 'idle') {
-      const opts = ROLE_CYBER[r.role].filter((c) => !cyberBlocker(r, c) && cyberPrice(c) <= r.wallet);
+      const opts = ROLE_CYBER[r.role].filter((c) => !CYBER[c].drop && !cyberBlocker(r, c) && cyberPrice(c) <= r.wallet);
       const wish = gearWish(r);
       if (wish.length && rnd() < 0.3) {
         const id = pick(wish);
@@ -1291,7 +1573,7 @@ function buyGear(r, id) {
 function gearWish(r) {
   return Object.keys(GEAR).filter((id) => {
     const g = GEAR[id], cur = r.gear[g.slot];
-    return g.roles.includes(r.role) && cur !== id && (!cur || GEAR[cur].price < g.price) && gearPrice(id) <= r.wallet;
+    return !g.drop && g.roles.includes(r.role) && cur !== id && (!cur || GEAR[cur].price < g.price) && gearPrice(id) <= r.wallet;
   });
 }
 

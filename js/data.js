@@ -167,6 +167,8 @@ const CYBER = {
   medkit: { name: '皮下メディキット', cat: 'organs', part: '体内', tier: 1, mods: { 医療: 1 }, loan: [300, 10], hl: 3, desc: '医療+1。休息で自分のHP+5' },
   heart: { name: '人工心臓「ツヅミ」', cat: 'organs', part: '胸', tier: 1, mods: { BODY: 1 }, loan: [700, 10], hl: 6, desc: 'BODY+1。死亡セーブに+2' },
   heart2: { name: '人工心臓「ツヅミ・弐」', cat: 'organs', part: '胸', line: 'heart', tier: 2, look: 'heart', mods: { BODY: 2 }, loan: [1200, 10], hl: 12, desc: 'BODY+2。死亡セーブに+3。鼓動は、もう聞こえない' },
+  // ボスが落とす義体（drop）。闇医者では売らず、ボスを倒した大仕事の報酬にだけ出る。roles は合うロール
+  kanameEye: { name: 'カナメの狙撃用義眼', cat: 'senses', part: '目', tier: 1, look: 'optics', mods: { 射撃: 2, 知覚: 3 }, loan: [1000, 10], hl: 10, roles: ['solo', 'driver'], drop: true, desc: '射撃+2 知覚+3。回収屋の頭が、標的を一度も見失わなかった目' },
 };
 
 /* ランナーの資質。まれに付く。humCap は人間性の上限を固定、humBonus は上乗せ、hlMult は義体の人間性コストの倍率、
@@ -202,6 +204,8 @@ const GEAR = {
   decoy: { name: 'デコイ・ドローン', slot: 'tool', price: 1400, mods: { 回避: 2 }, roles: ['solo', 'driver', 'tech'], desc: '回避+2。敵の照準を引きつける' },
   fakeid: { name: '偽造IDチップ', slot: 'tool', price: 1000, mods: { 説得: 1, 隠密: 1 }, roles: ['solo', 'driver', 'tech', 'med', 'net'], desc: '説得+1 隠密+1。今夜だけ別人になれる' },
   qpick: { name: '量子ピッキング端末', slot: 'tool', price: 2600, mods: { 電子: 3 }, roles: ['tech'], desc: '電子+3' },
+  // ボスが落とす装備（drop）。古物屋では売らない
+  denkiDeck: { name: '電気屋のデッキ', slot: 'tool', price: 4000, mods: { インターフェース: 2 }, iceguard: true, roles: ['net'], drop: true, desc: 'インターフェース+2。黒ICEの逆流を半分にする。電気屋が鍵をこじ開けるのに使っていた' },
 };
 
 /* フェーズ表の記法 */
@@ -218,6 +222,7 @@ const D = (dv, l) => ({ t: 'drive', dv, l });
 const K = (dv, l) => ({ t: 'talk', dv, l });
 const M = (dv, l) => ({ t: 'med', dv, l });
 const B = (l) => ({ t: 'boss', l });
+const BS = (boss, l) => ({ t: 'boss', boss, l }); // ローグライク版の幕のボス（RUN_BOSSES のキー）
 const I = (dv, l, fx) => ({ t: 'ice', dv, l, fx });
 const N5 = () => [_, _, _, _, _];
 const N10 = () => [_, _, _, _, _, _, _, _, _, _];
@@ -810,6 +815,132 @@ const ENDINGS = {
     body: [
       '箱は港の焼却炉で灰になった。誰も得をしなかった。',
       'それでも翌朝、ランナーたちは全員、隠れ家に帰ってきた。今夜も仕事はある。',
+    ],
+  },
+};
+
+/* ───────── ローグライク版：幕のボスと大仕事 ───────── */
+
+/* 幕のボス。強さはその幕の敵の基準値+2（DV・攻撃・ダメージ）。hits は耐久で、撤退して挑み直しても削った分は戻らない（護衛は戻る）
+   escort：護衛（交戦の敵の種類と数。群れは2体多い）
+   hidden：知覚DVで隠れ場所を見つけないと、現場から撃てない
+   hack：ネット担当がインターフェース（ボスのDV）に成功するたび耐久−1。ice：毎ラウンド、ネット担当にICE攻撃
+   deal：白蛇会との関係が rel 以上なら、説得で cost の取引に変えて交戦を避けられる
+   attacks：1ラウンドに撃つ回数。seize：このラウンド数で倒しきれないと、目標を1つ持ち去る（次の逃走を追撃戦にして運転で振り切れば取り返せる）
+   armored：テックか徹甲ライフルがないと、1発で耐久が1しか削れない（あれば2）
+   commander：指揮官が乗っている。生きているあいだ、ほかの敵の攻撃+1。知覚 spot で見抜くと先に狙える
+   drug：戦闘薬で攻撃+drug。talk：説得DVで正気に戻すと、撃たずに終わる
+   layers：ネットのボス。黒ICEの層ごとのDV（失敗で逆流2d6）。cut：抜けなければ現場から回線を物理的に切る（電子DV、3回まで）
+   tricks・ways：仕掛けと攻略の道。情報を買うと見える。drop：倒すと大仕事の報酬に混ざる品
+   role・gender・look：地図と依頼に出す姿（肖像と義体の描き方） */
+const RUN_BOSSES = {
+  denki: {
+    name: '電気屋', role: 'net', gender: 'm', look: ['jack2', 'coproc2'], hits: 2,
+    who: '白蛇会の電脳屋。ハシバが手放した箱の鍵を買い取っている。',
+    escort: [{ type: 'swarm', n: 1, name: '白蛇会の用心棒' }],
+    hidden: 17, hack: true, ice: true, noShoot: true, deal: { rel: 30, dv: 15, cost: 1000 },
+    tricks: ['店の奥に隠れていて、現場からは見えない', '毎ラウンド、ネット担当にICE攻撃を仕掛けてくる（ネット担当がいなければ現場の誰かが2d6）'],
+    ways: ['ネット：インターフェースで2回成功すると倒せる', '現場：知覚DV17で隠れ場所を見つければ、射撃で倒せる', '白蛇会との関係が+30以上なら、説得で1,000crの取引に変えられる'],
+    drop: { gear: 'denkiDeck' },
+  },
+  kaname: {
+    name: 'カナメ', role: 'solo', gender: 'f', look: ['optics2', 'arm2', 'reflex'], hits: 3,
+    who: '三社のどれにも雇われる回収屋の頭。名簿に載った人を「回収」してきた。',
+    escort: [{ type: 'sniper', n: 1, name: '回収班の狙撃手' }, { type: 'swarm', n: 1, name: '回収班' }],
+    attacks: 2, seize: 2,
+    tricks: ['ソロ型の傭兵ランナー。1ラウンドに2回撃つ', '2ラウンドで倒しきれないと、目標を1つ持ち去る'],
+    ways: ['持ち去られても、次の逃走が追撃戦になる。追手を退けて運転で振り切れば取り返せる', '狙撃手は知覚DV18で先に見つける'],
+    drop: { cyber: 'kanameEye' },
+  },
+  hound: {
+    name: '鋼の番犬', role: 'solo', gender: 'm', look: ['plating3', 'arm2', 'heart2'], hits: 4,
+    who: 'ミツカネの物流部長ナカガワの警備艇に乗る重装義体兵。',
+    escort: [{ type: 'armored', n: 1, name: 'ミツカネの警備兵' }],
+    armored: true, commander: { name: 'ナカガワ', spot: 18 },
+    tricks: ['重装甲。テックか徹甲ライフルがないと、1発で耐久が1しか削れない', 'ナカガワが指揮官として乗っている。生きているあいだ、ほかの敵の攻撃+1'],
+    ways: ['テックを連れていくか、徹甲ライフルを持たせる（1発で耐久2）', '知覚DV18でナカガワを見抜けば、先に落とせる'],
+  },
+  subject: {
+    name: '被検体', role: 'solo', gender: 'x', look: ['reflex3', 'heart2'], hits: 3,
+    who: '名簿に載っていた一人。ヴェルデの治験管理官が、戦闘薬で動かしている。',
+    escort: [{ type: 'swarm', n: 1, name: '検疫部隊' }],
+    drug: 2, talk: 18,
+    tricks: ['戦闘薬が毎ラウンド効いていて、攻撃+2'],
+    ways: ['説得DV18で正気に戻せば、撃たずに終わる。そのときは結末の一行が変わる', 'メドテックがいれば、倒れた仲間の死亡セーブに+1'],
+  },
+  keeper: {
+    name: '保守主任', role: 'net', gender: 'f', look: ['jack2', 'tacai2'], hits: 3,
+    who: '箱を開ける回線を貸してくれた本人。箱の中身を、回線ごと消しに来る。',
+    layers: [18, 19, 20], cut: 20,
+    tricks: ['ネットのボス。黒ICEが3重（DV18・19・20）。失敗するたびに逆流2d6（防具無視）'],
+    ways: ['腕のいいネットランナーと、ニューラル防壁（逆流を受けない）', 'ネットで抜けなければ、現場から回線を物理的に切る（電子DV20、3回まで）', '破った層は、挑み直しても戻らない'],
+  },
+};
+
+/* 幕の大仕事。act は幕、ally は第1幕で組んだ社（第2幕・第3幕）。campaign は成功したときに進める章
+   （cipher：組む社を選ぶ、cargo_*：沈む名前へ、dawn：箱の行き先を決める結末） */
+const RUN_JOBS = {
+  run_denki: {
+    id: 'run_denki', act: 1, rank: 1, district: 'street', title: '電気屋から箱の鍵を取り返す', client: 'self', target: 'gang', campaign: 'cipher', boss: 'denki',
+    nights: 1, payout: 1000, cred: 0, heat: 0, req: ['net'],
+    desc: 'ハシバが手放した箱の鍵は、白蛇会の電脳屋「電気屋」が買い取っていた。屋台街の奥の店で、鍵を売る相手を待っている。',
+    routes: [
+      { name: '店の正面', note: '人混みに紛れて店に入る', field: [S(15, '屋台街の人混み'), C(1, '白蛇会の見張り', 'swarm'), _, BS('denki', '電気屋の店'), O('箱の鍵')], net: [I(15, '監視カメラ', 'cam'), _, _, _, _] },
+      { name: '屋根づたい', note: '屋根を伝って店の裏に回る', field: [H(T(15, '屋根の鳴子')), _, R('給水塔の陰'), BS('denki', '電気屋の店'), O('箱の鍵')], net: [_, I(15, '屋根のカメラ', 'cam'), _, _, _] },
+    ],
+  },
+  run_cargo_mitsukane: {
+    id: 'run_cargo_mitsukane', act: 2, ally: 'mitsukane', rank: 2, district: 'harbor', title: '名簿の原本：ヴェルデの検疫倉庫', client: 'self', target: 'verde', campaign: 'cargo_mitsukane', boss: 'kaname',
+    nights: 1, payout: 3000, cred: 0, heat: 10, req: ['solo', 'driver'],
+    desc: 'ミツカネの警備部が、港の夜警を一晩だけ外してくれる。名簿の原本はヴェルデの検疫倉庫にある。同じ夜、回収屋のカナメも名簿を狙っている。',
+    routes: [
+      { name: '検疫倉庫', note: '正面から押し入る', field: [S(15, '検疫倉庫'), C(2, 'ヴェルデの検疫警備', 'armored', 17), O('名簿の原本'), BS('kaname', '回収屋の待ち伏せ'), E(15, '港から離脱')], net: N5() },
+      { name: '検疫船', note: '沖に停めた検疫船に横づけする', field: [D(15, '検疫船に横づけ'), H(C(2, '船員に化けた私兵', 'swarm', 19)), O('名簿の原本'), BS('kaname', '回収屋の待ち伏せ'), E(17, '沖へ逃走')], net: N5() },
+    ],
+  },
+  run_cargo_verde: {
+    id: 'run_cargo_verde', act: 2, ally: 'verde', rank: 2, district: 'upper', title: '名簿の写し：ハクロウの医療回線', client: 'self', target: 'hakurou', campaign: 'cargo_verde', boss: 'kaname',
+    nights: 1, payout: 3000, cred: 0, heat: 10, req: ['net', 'med'],
+    desc: 'ヴェルデの治験管理官が、名簿と照合できる記録を渡すという。条件は、ハクロウの医療回線に残る転送記録。抜いた写しを、回収屋のカナメが待ち構えている。',
+    routes: [
+      { name: '医療回線', note: '治験の往診を装って端末に触れる', field: [M(15, '治験の往診を装う'), H(C(2, '回線警備', 'hacker', 19)), O('名簿の写し'), BS('kaname', '回収屋の待ち伏せ'), E(15, '救急車で離脱')], net: [I(15, '医療回線', 'trace'), _, I(15, '転送記録', 'data'), _, _] },
+      { name: '保管庫', note: 'ハクロウの記録保管庫に忍び込む', field: [S(15, 'ハクロウの保管庫'), C(2, '保管庫の警備', 'sniper', 17), O('名簿の写し'), BS('kaname', '回収屋の待ち伏せ'), E(15, '撤収')], net: [_, I(15, 'カメラ網', 'cam'), I(15, '転送記録', 'data'), _, _] },
+    ],
+  },
+  run_cargo_hakurou: {
+    id: 'run_cargo_hakurou', act: 2, ally: 'hakurou', rank: 2, district: 'harbor', title: '名簿の原本：港湾局の記録庫', client: 'self', target: 'mitsukane', campaign: 'cargo_hakurou', boss: 'kaname',
+    nights: 1, payout: 3000, cred: 0, heat: 10, req: ['net', 'tech'],
+    desc: 'ハクロウの回線保守主任が、港湾局の電子目録への回線を貸してくれる。記録庫の原本を持ち出す夜、回収屋のカナメが出口で待っている。',
+    routes: [
+      { name: '記録庫', note: '港湾局の古い地下書庫', field: [S(15, '港湾局'), GT(15, '書庫の扉'), O('名簿の原本'), BS('kaname', '回収屋の待ち伏せ'), E(15, '撤収')], net: [I(15, 'カメラ網', 'cam'), I(15, '書庫の施錠', 'door'), I(17, '電子目録', 'data'), _, _] },
+      { name: '荷役クレーン', note: 'クレーンで記録庫の屋上に降りる', field: [D(15, '荷役クレーンで屋上へ'), H(T(15, '古い警報')), O('名簿の原本'), BS('kaname', '回収屋の待ち伏せ'), E(15, '撤収')], net: [_, I(15, '警報系', 'alarm'), I(17, '電子目録', 'data'), _, _] },
+    ],
+  },
+  run_box_mitsukane: {
+    id: 'run_box_mitsukane', act: 3, ally: 'mitsukane', rank: 3, district: 'harbor', title: '箱を開ける：ナカガワの警備艇', client: 'self', target: 'mitsukane', campaign: 'dawn', boss: 'hound',
+    nights: 1, payout: 0, cred: 0, heat: 0, req: ['solo'],
+    desc: '箱の最後の層が開く夜、ミツカネの物流部長ナカガワが警備艇で乗りつけてきた。手を組んだ相手が、最後に立ちはだかる。',
+    routes: [
+      { name: '桟橋で迎え撃つ', note: '警備艇が着く前に先遣隊を叩く', field: [D(17, '湾岸の隠れ家へ急ぐ'), C(2, 'ミツカネの先遣隊', 'armored'), R('倉庫の陰'), BS('hound', '警備艇の甲板'), O('箱を開ける')], net: [I(17, '警備艇の通信', 'trace'), _, _, _, _] },
+      { name: '船倉に乗り込む', note: '桟橋の下を回って警備艇に乗り移る', field: [S(17, '桟橋の下を回る'), H(T(17, '水中センサー')), GT(17, '警備艇の船倉'), BS('hound', '警備艇の甲板'), O('箱を開ける')], net: [_, _, I(17, '船倉の施錠', 'door'), _, _] },
+    ],
+  },
+  run_box_verde: {
+    id: 'run_box_verde', act: 3, ally: 'verde', rank: 3, district: 'upper', title: '箱を開ける：治験病棟の「被検体」', client: 'self', target: 'verde', campaign: 'dawn', boss: 'subject',
+    nights: 1, payout: 0, cred: 0, heat: 0, req: ['med'],
+    desc: '治験管理官は、箱の中身ごと名簿の人々を消すつもりだった。差し向けられたのは、戦闘薬で動かされている名簿の一人だ。',
+    routes: [
+      { name: '検疫部隊に紛れる', note: '防護服を着て病棟に入る', field: [M(17, '検疫部隊のふりをする'), C(2, '検疫部隊', 'swarm'), _, BS('subject', '隔離病室'), O('箱を開ける')], net: [I(17, '病棟のカメラ網', 'cam'), _, _, _, _] },
+      { name: '裏口から', note: '薬品庫を抜けて隔離病室へ', field: [S(17, '治験病棟の裏口'), H(T(17, '検疫ガスの噴霧口')), R('薬品庫'), BS('subject', '隔離病室'), O('箱を開ける')], net: [_, I(17, '換気制御', 'cam'), _, _, _] },
+    ],
+  },
+  run_box_hakurou: {
+    id: 'run_box_hakurou', act: 3, ally: 'hakurou', rank: 3, district: 'upper', title: '箱を開ける：保守主任の回線', client: 'self', target: 'hakurou', campaign: 'dawn', boss: 'keeper',
+    nights: 1, payout: 0, cred: 0, heat: 0, req: [],
+    desc: '箱を開ける回線は、ハクロウの保守主任が貸してくれたものだった。最後の層が開く直前、その回線を通って、本人が中身を消しに来た。',
+    routes: [
+      { name: '回線保守棟', note: '保守主任のいる棟に乗り込む', field: [S(17, '回線保守棟'), C(2, '監視ドローン', 'sniper'), _, BS('keeper', '保守主任の回線'), O('箱を開ける')], net: [I(17, '保守棟のカメラ網', 'cam'), _, _, _, _] },
+      { name: '湾岸中継局', note: '回線の途中にある中継局を押さえる', field: [D(17, '中継局へ'), H(C(2, '監視ドローン', 'sniper')), GT(17, '中継局の扉'), BS('keeper', '保守主任の回線'), O('箱を開ける')], net: [_, _, I(17, '中継局の施錠', 'door'), _, _] },
     ],
   },
 };

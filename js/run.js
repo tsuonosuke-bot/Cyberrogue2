@@ -17,6 +17,7 @@ const Run = (() => {
     event: { name: '事件', mark: '事', tab: 'event', desc: '街で何かが起きる。選択肢つき' },
     boss: { name: '大仕事', mark: '大', tab: 'board', desc: '幕の最後の仕事。2度失敗するとランが終わる' },
     cont: { name: '依頼の続き', mark: '続', tab: null, desc: '2夜依頼の2夜目。行き先は選べない' },
+    deserter: { name: '元部下', mark: '元', tab: 'board', desc: '人間性が尽きて消えた元部下を止める。5夜のうちに行かなければ、市警の鎮圧班が片付ける' },
   };
   // 行き先の重み（第1〜3幕）。1つずつ引き、同じ夜に同じ行き先は出さない
   const WEIGHTS = {
@@ -25,11 +26,25 @@ const Run = (() => {
   };
   const SLOTS = [3, 3, 2]; // 1〜3夜目の行き先の数。4夜目は大仕事
   const HARD_DV = 2; // 第3幕の危ない依頼は、上のランクがないのでDVを上げる
+  // 幕の大仕事（RUN_JOBS）。第1幕は全ラン共通、第2幕と第3幕は組んだ社で変わる
   const BOSS = {
-    1: () => 'camp2',
-    2: () => CHAPTERS['cargo_' + (G.flags.ally || 'hakurou')].job,
-    3: () => 'camp5',
+    1: () => 'run_denki',
+    2: () => 'run_cargo_' + (G.flags.ally || 'hakurou'),
+    3: () => 'run_box_' + (G.flags.ally || 'hakurou'),
   };
+  /* 前歴。最初の隊（crew）と、ラン中ずっと効く利点・弱み。later は信用で解放する前歴（段取り6で鍵をかける） */
+  const BACKGROUNDS = {
+    solo: { name: '元ソロ', crew: ['solo', 'driver'], perk: '交戦の1ラウンド目、射撃+1', weak: 'ネットランナーがいない。ネットのフェーズは自動で失敗する' },
+    net: { name: '元ネットランナー', crew: ['net', 'tech'], perk: '各幕のはじめに情報券+1（情報が1回無料）', weak: '交戦を担う人がいない' },
+    ripper: { name: '闇医者のツテ', crew: ['med', 'solo'], perk: '義体の人間性コスト−1（最低1）', weak: '逃走と運転に弱い' },
+    corp: { name: '企業の元社員', crew: ['tech', 'driver'], perk: '組む社を始めに決めておける。その社のヒート−15', weak: '残りの2社はヒート+10で始まる', later: true },
+    gang: { name: '白蛇会の身内', crew: ['solo', 'solo'], perk: '白蛇会との関係+30で始まる（屋台街の情報が半額・路上育ちの候補が増える）', weak: '路地裏の候補は義体を入れていて、人間性が低いことが多い', later: true },
+    patchwork: { name: '寄せ集め', crew: null, perk: '好きなロールで3人から始める', weak: '初期資金1,000cr。報酬が3択でなく2択', later: true, money: 1000 },
+  };
+  const PATCHWORK_DEFAULT = ['solo', 'net', 'driver'];
+  const crewOf = (bg, opt) => (bg === 'patchwork'
+    ? [0, 1, 2].map((i) => (ROLES[(opt.roles || [])[i]] ? opt.roles[i] : PATCHWORK_DEFAULT[i]))
+    : BACKGROUNDS[bg].crew);
   const HIDEOUT_HUM = 5;
   // ランの始まりの語り。キャンペーン版の第1章（借金40夜）の代わりに出す
   const INTRO = {
@@ -39,7 +54,7 @@ const Run = (() => {
       '湾岸の隠れ家と、開け方のわからない黒い箱が、新人のあなたに回ってきた。箱を欲しがる連中は、十二夜も待ってはくれない。',
       'あなたは撃たない。毎夜、街のどこへ行くかを決め、ランナーを送り出す。そして、人間のまま帰ってくるのを待つ。',
     ],
-    goal: '第1幕の4夜目までにネットランナーを抱え、箱の暗号を破る大仕事に挑む。',
+    goal: '第1幕の4夜目に、箱の鍵を買い取った白蛇会の「電気屋」から鍵を取り返す。ネットランナーがいないと挑めない。',
   };
 
   const R = () => G.run;
@@ -98,23 +113,106 @@ const Run = (() => {
 
   /* ───────── 開始と保存 ───────── */
 
-  function start(g) {
-    g.run = { act: 1, slot: 1, map: null, picked: {}, tonight: null, retried: false, used: [], taken: [], event: null, history: [], recorded: false };
+  /* 前歴の最初の隊。newGame が World.init より前に呼ぶ（元ソロはキャンペーン版と同じジロウとサエ）。資質は付かない */
+  function crew(bg = 'solo', opt = {}) {
+    if (!BACKGROUNDS[bg]) bg = 'solo';
+    if (bg === 'solo') {
+      const a = makeRunner('solo', { name: 'ジロウ', gender: 'm', origin: 'street', pref: 'any', trait: null });
+      const b = makeRunner('driver', { name: 'サエ', gender: 'f', origin: 'drifter', pref: 'any', trait: null });
+      a.wallet = 200; b.wallet = 100;
+      G.runners.push(a, b);
+      return;
+    }
+    for (const role of crewOf(bg, opt)) {
+      const r = makeRunner(role, { pref: 'any', trait: null, ...(bg === 'gang' ? { origin: 'street' } : {}) });
+      r.wallet = rint(1, 4) * 50;
+      G.runners.push(r);
+    }
+  }
+
+  function start(g, bg = 'solo', opt = {}) {
+    if (!BACKGROUNDS[bg]) bg = 'solo';
+    g.run = { bg, corp: null, wanted: 0, deserters: [], custody: [], act: 1, slot: 1, map: null, picked: {}, tonight: null, retried: false, used: [], taken: [], event: null, history: [], recorded: false };
     g.rank = 1;
     g.loans = [];
     G = g;
+    const B = BACKGROUNDS[bg];
+    if (B.money) G.money = B.money;
+    if (bg === 'net') G.vouchers.intel += 1;
+    if (bg === 'corp') {
+      const corp = CORPS.includes(opt.corp) ? opt.corp : CORPS[0];
+      g.run.corp = corp;
+      for (const c of CORPS) G.heat[c] = clamp(G.heat[c] + (c === corp ? -15 : 10), 0, 100);
+    }
+    if (bg === 'gang') G.gangRelation = 30;
     g.run.map = genMap(1);
     G.board = []; G.scouts = [];
   }
 
+  /* 判定の補正（engine.js の check から呼ぶ）。元ソロは交戦の1ラウンド目に射撃+1 */
+  /* 判定の補正（engine.js の check から呼ぶ）。元ソロは交戦の1ラウンド目に射撃+1。
+     動揺した人はその交戦の射撃・回避−2、暴走した人は射撃+2 */
+  function checkParts(ctx, m, sk) {
+    const s = ctx.combatState, parts = [];
+    if (R().bg === 'solo' && sk === '射撃' && s && s.round === 0) parts.push({ label: '元ソロの勘', v: 1 });
+    if (s && (s.shaken || []).includes(m.id) && (sk === '射撃' || sk === '回避')) parts.push({ label: '動揺', v: -2 });
+    if (s && (s.mad || []).includes(m.id) && sk === '射撃') parts.push({ label: '暴走', v: 2 });
+    return parts;
+  }
+
+  /* ───────── 元部下 ───────── */
+
+  const DESERTER_NIGHTS = 5;
+  /* 人間性0で隊を抜けた元部下（engine.js の desert から呼ぶ）。5夜のあいだ、地区マップの行き先に加わる */
+  function addDeserter(r, tpl, out) {
+    (R().deserters ||= []).push({ id: r.id, name: r.name, role: r.role, until: G.night + DESERTER_NIGHTS, tpl });
+    out.events.push({ kind: 'ng', text: `${r.name}の人間性が0になった。隠れ家から姿を消した。${DESERTER_NIGHTS}夜のうちに地区マップの「元部下」へ行かなければ、市警の鎮圧班が片付ける` });
+  }
+  /* 元部下の依頼の決着（engine.js の settle から呼ぶ）。止めるか、鎮圧班が片付けたら、慰霊碑に刻む */
+  function deserterDone(job, res, s) {
+    const id = +job.id.replace('deserter_', ''), d = (R().deserters || []).find((x) => x.id === id);
+    if (!d || (!res.success && !res.suppressed)) return;
+    R().deserters = R().deserters.filter((x) => x !== d);
+    G.memorial.push({ name: d.name, role: d.role, night: G.night, cause: res.success ? '元部下として止められた' : '鎮圧班が片付けた（元部下）', jobs: 0 });
+    s.notes.push(res.success ? `${d.name}を止めた` : `${d.name}は鎮圧班に片付けられた。義体は取り戻せない`);
+  }
+  /* 今夜選べる行き先。地図の行き先に、まだ期限の来ていない元部下が加わる（大仕事の夜は除く） */
+  function options(slot) {
+    const run = R(), base = run.map[slot] || [];
+    if (slot !== run.slot || slot === 4) return base;
+    return [...base, ...(run.deserters || []).map((d) => ({ type: 'deserter', dz: d.id }))];
+  }
+
+  /* ───────── ラザロ ───────── */
+
+  /* 闇医者で入るラザロのプラン。plan は null（なし）・'basic'（基本）・'armed'（武装回収、第2幕から） */
+  function setLazarus(r, plan) {
+    if (plan === 'armed' && R().act < LAZARUS_ARMED.act) return `武装回収は第${LAZARUS_ARMED.act}幕から入れます`;
+    if (plan && !['basic', 'armed'].includes(plan)) return 'プランが見つかりません';
+    r.lazarus = plan || false;
+    return null;
+  }
+
   /* ───────── 行き先を選ぶ ───────── */
 
+  /* 幕の大仕事。挑み直すときは、前に削ったボスの耐久（bossLeft）を引き継ぐ */
   function bossJob() {
-    const id = BOSS[R().act]();
-    const t = clone(CAMPAIGN_JOBS[id]);
+    const t = clone(RUN_JOBS[BOSS[R().act]()]);
     t.rank = R().act;
     t.runBoss = true;
+    if (R().bossLeft != null) t.bossLeft = R().bossLeft;
     return t;
+  }
+
+  /* 白蛇会の身内：路地裏の候補は義体を入れていて、前の現場で人間性も削れていることが多い */
+  function streetChrome(r) {
+    for (const c of shuffle(ROLE_CYBER[r.role].filter((x) => CYBER[x].tier === 1)).slice(0, rint(1, 2))) {
+      if (cyberBlocker(r, c)) continue;
+      r.humanity -= cyberHumanityDelta(r, c);
+      r.cyber.push(c);
+    }
+    r.humanity = Math.max(16, r.humanity - rint(5, 15));
+    r.hp = maxHp(r); r.armor = armorMax(r);
   }
 
   function nodeJob(n) {
@@ -132,7 +230,7 @@ const Run = (() => {
     const run = R();
     if (run.tonight) return '今夜の行き先はもう決まっています';
     if (G.nightInProgress) return '判断待ちの通信を完了してください';
-    const n = run.map[run.slot][i];
+    const n = options(run.slot)[i];
     if (!n) return '行き先が見つかりません';
     run.picked[run.slot] = i;
     run.tonight = { ...n };
@@ -145,7 +243,11 @@ const Run = (() => {
     run.history.push({ act: run.act, slot: run.slot, night: G.night, type: n.type });
     if (n.type === 'job' || n.type === 'hard') { const j = addJob(nodeJob(n), true); n.uid = j.uid; }
     if (n.type === 'boss') { const j = addJob(bossJob(), true); n.uid = j.uid; }
-    if (n.type === 'alley') refreshScouts();
+    if (n.type === 'deserter') { const d = run.deserters.find((x) => x.id === n.dz); const j = addJob(clone(d.tpl), true); n.uid = j.uid; }
+    if (n.type === 'alley') {
+      refreshScouts();
+      if (run.bg === 'gang') for (const r of G.scouts) if (!r.story && rnd() < 0.6) streetChrome(r);
+    }
     if (n.type === 'hideout') {
       for (const r of G.runners) {
         if (r.status === 'mission') continue;
@@ -239,7 +341,7 @@ const Run = (() => {
   /* 入れられる人がいる義体か。枠がいっぱいでも、同じ部位のどれかを外せば入れられる */
   const cyberTakers = (c) => G.runners.filter((r) => cyberFits(r, c) && (!cyberBlocker(r, c) || swapChoices(r, c).some((d) => !cyberBlocker(r, c, d))));
   const gearTakers = (id) => G.runners.filter((r) => r.gear[GEAR[id].slot] !== id);
-  const topGear = (a) => Object.keys(GEAR).filter((id) => GEAR[id].price <= GEAR_MAX[a]).sort((x, y) => GEAR[y].price - GEAR[x].price)[0];
+  const topGear = (a) => Object.keys(GEAR).filter((id) => !GEAR[id].drop && GEAR[id].price <= GEAR_MAX[a]).sort((x, y) => GEAR[y].price - GEAR[x].price)[0];
 
   function pickW(items, w) {
     let x = rnd() * items.reduce((t, it) => t + w(it), 0);
@@ -251,7 +353,7 @@ const Run = (() => {
   function rewardOf(kind, a, rare, used) {
     const taken = R().taken;
     if (kind === 'cyber') {
-      const ids = Object.keys(CYBER).filter((c) => CYBER[c].tier <= CYBER_TIER[a] && (!rare || CYBER[c].tier > 1) && !taken.includes(c) && !used.includes(c) && cyberTakers(c).length);
+      const ids = Object.keys(CYBER).filter((c) => !CYBER[c].drop && CYBER[c].tier <= CYBER_TIER[a] && (!rare || CYBER[c].tier > 1) && !taken.includes(c) && !used.includes(c) && cyberTakers(c).length);
       if (!ids.length) return null;
       const upgrade = (c) => G.runners.some((r) => r.cyber.some((x) => cyberLine(x) === cyberLine(c) && CYBER[x].tier < CYBER[c].tier));
       const id = pickW(ids, (c) => (upgrade(c) ? BIAS : 1));
@@ -259,7 +361,7 @@ const Run = (() => {
     }
     if (kind === 'gear') {
       const top = topGear(a);
-      const ids = Object.keys(GEAR).filter((id) => GEAR[id].price <= GEAR_MAX[a] && (a > 1 || GEAR[id].price >= 700) && (!rare || id === top) && !taken.includes(id) && !used.includes(id) && gearTakers(id).length && G.runners.some((r) => GEAR[id].roles.includes(r.role)));
+      const ids = Object.keys(GEAR).filter((id) => !GEAR[id].drop && GEAR[id].price <= GEAR_MAX[a] && (a > 1 || GEAR[id].price >= 700) && (!rare || id === top) && !taken.includes(id) && !used.includes(id) && gearTakers(id).length && G.runners.some((r) => GEAR[id].roles.includes(r.role)));
       if (!ids.length) return null;
       const id = pick(ids);
       return { kind, id, rare: id === top };
@@ -278,12 +380,25 @@ const Run = (() => {
   }
 
   /* 依頼の精算で呼ぶ（engine.js の settle）。危ない依頼・2夜依頼・大仕事の後は、1つを必ず希少にする */
-  function makeReward(job) {
-    const a = R().act, opts = [], used = [];
-    const keep = (o) => { if (!o) return false; opts.push(o); used.push(o.id || o.kind); return true; };
+  /* ボスを倒したときに混ざる品。入れられる人・持たせられる人がいて、まだ取っていないものだけ */
+  function bossDrop(job, res) {
+    const d = res && res.bossDown && job.boss && RUN_BOSSES[job.boss].drop;
+    if (!d) return null;
+    const id = d.cyber || d.gear;
+    if (R().taken.includes(id)) return null;
+    if (d.cyber) return cyberTakers(id).length ? { kind: 'cyber', id, rare: true, drop: job.boss } : null;
+    return gearTakers(id).length ? { kind: 'gear', id, rare: true, drop: job.boss } : null;
+  }
+
+  /* 依頼の精算で呼ぶ（engine.js の settle）。危ない依頼・2夜依頼・大仕事の後は、1つを必ず希少にする。
+     ボスを倒した大仕事では、ボスの義体・装備が1つ混ざる。寄せ集めは3択でなく2択 */
+  function makeReward(job, res) {
+    const a = R().act, opts = [], used = [], size = R().bg === 'patchwork' ? 2 : 3;
+    const keep = (o) => { if (!o || opts.length >= size) return false; opts.push(o); used.push(o.id || o.kind); return true; };
     const rare = !!(job.hard || job.runBoss || job.nights >= 2);
+    keep(bossDrop(job, res));
     if (rare) for (const kind of shuffle(['cyber', 'gear', 'runner'])) if (keep(rewardOf(kind, a, true, used))) break;
-    for (let guard = 0; opts.length < 3 && guard < 40; guard++) keep(rewardOf(pickW(Object.keys(REWARD_W), (k) => REWARD_W[k]), a, false, used));
+    for (let guard = 0; opts.length < size && guard < 40; guard++) keep(rewardOf(pickW(Object.keys(REWARD_W), (k) => REWARD_W[k]), a, false, used));
     return { run: true, title: job.title, rare, opts: shuffle(opts) };
   }
 
@@ -328,6 +443,12 @@ const Run = (() => {
     G.board = []; G.scouts = [];
     run.event = null;
     run.tonight = null;
+    // 期限までに止めに行かなかった元部下は、鎮圧班が片付ける
+    for (const d of (run.deserters || []).filter((x) => x.until < G.night)) {
+      G.memorial.push({ name: d.name, role: d.role, night: G.night, cause: '鎮圧班が片付けた（元部下）', jobs: 0 });
+      out.events.push({ kind: 'ng', text: `元部下の${d.name}は、市警の鎮圧班に片付けられた。義体は取り戻せない` });
+    }
+    run.deserters = (run.deserters || []).filter((x) => x.until >= G.night);
     if (G.ended) return finish();
     if (!G.runners.length) { G.ended = { type: 'wipe' }; return finish(); }
     if (run.slot === 4) {
@@ -339,6 +460,7 @@ const Run = (() => {
       if (boss || skippedBoss) {
         if (run.retried) { G.ended = { type: 'boss' }; return finish(); }
         run.retried = true;
+        if (boss && boss.bossLeft != null) run.bossLeft = boss.bossLeft;
         out.events.push({ kind: 'ng', text: `${act().name}の大仕事に失敗した。次の夜に一度だけ挑み直せる（この夜は幕の夜数に数えない）` });
         return force('boss');
       }
@@ -346,7 +468,11 @@ const Run = (() => {
     }
     run.slot++;
     if (ongoing) return force('cont'); // 2夜依頼がこの夜を使う
-    if (run.slot === 4) return force('boss');
+    if (run.slot === 4) {
+      // 第3幕の大仕事の夜に、最後の章（夜明け）が始まる
+      if (run.act === 3 && G.chapter !== 'dawn') { G.chapter = 'dawn'; G.chapterSince = G.night; if (!reached('dawn')) G.chapterLog.push('dawn'); out.story.push('dawn'); }
+      return force('boss');
+    }
   }
 
   /* 選べない夜は、行き先を自動で決める */
@@ -359,6 +485,8 @@ const Run = (() => {
   function nextAct(out) {
     const run = R();
     run.act++; run.slot = 1; run.retried = false; run.picked = {};
+    delete run.bossLeft;
+    if (run.bg === 'net') G.vouchers.intel += 1;
     run.map = genMap(run.act);
     G.rank = run.act;
     out.events.push({ kind: 'ok', text: `${ACTS[run.act - 1].name}を越えた。${act().name}・${act().place}へ` });
@@ -400,10 +528,14 @@ const Run = (() => {
       const t = JOBS.find((x) => x.id === n.tpl);
       Object.assign(info, { title: t.title, client: t.client, target: t.target, nights: t.nights, payout: n.tough ? Math.round(t.payout * 1.3 / 50) * 50 : t.payout, req: t.req, rank: t.rank });
     }
+    if (n.type === 'deserter') {
+      const d = (R().deserters || []).find((x) => x.id === n.dz), t = d && d.tpl;
+      if (t) Object.assign(info, { title: t.title, client: t.client, target: t.target, nights: t.nights, payout: t.payout, req: t.req, until: d.until });
+    }
     if (n.type === 'boss') {
-      const id = R().act === 2 && !G.flags.ally ? null : BOSS[R().act]();
-      const t = id && CAMPAIGN_JOBS[id];
-      if (t) Object.assign(info, { title: t.title, client: t.client, target: t.target, nights: t.nights, payout: t.payout, req: t.req });
+      const id = R().act > 1 && !G.flags.ally ? null : BOSS[R().act]();
+      const t = id && RUN_JOBS[id];
+      if (t) Object.assign(info, { title: t.title, client: t.client, target: t.target, nights: t.nights, payout: t.payout, req: t.req, boss: t.boss, bossLeft: R().bossLeft });
       else info.title = '組んだ社で決まる';
     }
     return info;
@@ -414,14 +546,15 @@ const Run = (() => {
 
   /* ラン中に流す章の「目標」。キャンペーン版の評判ランクの条件は使わない（null は目標を出さない） */
   const GOALS = {
-    cargo: '第2幕の4夜目に、組んだ社の手引きで名簿を追う大仕事がある。地区マップで必須ロールを確かめ、そろえておく。',
+    cargo: '第2幕の4夜目に、組んだ社の手引きで名簿を奪う大仕事がある。回収屋の頭「カナメ」が同じ名簿を狙っている。地区マップで必須ロールを確かめ、そろえておく。',
     drowned: null,
-    coordinator: '第3幕の4夜目に、箱を持って朝を迎える大仕事がある。（毎夜、全企業のヒート+3）',
+    coordinator: '第3幕の4夜目に、箱を開ける大仕事がある。最後に立ちはだかるのは、手を組んだ社だ。（毎夜、全企業のヒート+3）',
+    dawn: '箱を開ける。手を組んだ社のボスを越えれば、箱の行き先は自分で決められる。',
   };
   const storyGoal = (key, fallback) => {
     const k = Object.keys(GOALS).find((g) => key === g || key.startsWith(g + '_'));
     return k ? GOALS[k] : fallback;
   };
 
-  return { REWARD_CR, SKIP_CR, makeReward, takeReward, cyberTakers, ACTS, DEST, EVENTS, INTRO, storyGoal, SLOTS, start, genMap, choose, resolveEvent, nextNight, nodeInfo, tonightTab, canEndNight, loadMeta, finish, depth, act };
+  return { BACKGROUNDS, BOSS, crew, crewOf, checkParts, addDeserter, deserterDone, options, setLazarus, bossJob, REWARD_CR, SKIP_CR, makeReward, takeReward, cyberTakers, ACTS, DEST, EVENTS, INTRO, storyGoal, SLOTS, start, genMap, choose, resolveEvent, nextNight, nodeInfo, tonightTab, canEndNight, loadMeta, finish, depth, act };
 })();

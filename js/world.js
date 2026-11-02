@@ -121,6 +121,11 @@ const World = (() => {
     init(G);
     ctx.environmentNight = G.night;
     ctx.worldConditions = { news: clone(currentNews()), condition: clone(G.conditions[ctx.job.district] || null) };
+    // 鎮圧班をかばった幕のあいだは、市警の手配で敵が増える
+    if (G.run && G.run.wanted && G.run.wanted === G.run.act) {
+      ctx.mods.extraEnemy++;
+      L(ctx, '', '市警の手配が回っている。次の交戦で敵+1', 'ng');
+    }
     // ラン中は、ヒート80を超えた社の依頼で敵が増える
     if (G.run && ctx.job.target && CLIENTS[ctx.job.target].kind === 'corp' && G.heat[ctx.job.target] >= 80) {
       ctx.mods.extraEnemy++;
@@ -313,4 +318,4 @@ const World = (() => {
 })();
 
 // Static templates carry their district; tags are derived the same way as for dynamic jobs.
-for (const j of [...JOBS, ...Object.values(INTRO_JOBS), ...Object.values(CAMPAIGN_JOBS)]) World.prepareJob(j);
+for (const j of [...JOBS, ...Object.values(INTRO_JOBS), ...Object.values(CAMPAIGN_JOBS), ...Object.values(RUN_JOBS)]) World.prepareJob(j);

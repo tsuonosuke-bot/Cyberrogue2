@@ -616,3 +616,31 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); }
 .rwr { display: flex; gap: 8px; align-items: center; }
 .rts { display: grid; gap: 6px; margin-top: 4px; }
 .rt { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 12px; }
+
+/* ── 前歴を選ぶ ── */
+.ts-in.setup { max-width: 960px; }
+.bgs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 10px; margin-block: 14px; }
+.bgc { display: grid; gap: 4px; text-align: left; align-content: start; background: var(--panel); border: 1px solid var(--rule); padding: 10px 12px; font-size: 13px; }
+.bgc b { font-size: 16px; }
+.bgc[aria-pressed="true"] { background: var(--sheet); color: var(--ink); border-color: var(--pink); box-shadow: inset 0 3px 0 var(--pink), var(--glow-pink); }
+.bgcrew { color: var(--ink-soft); }
+.setup .seg { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-block: 6px; }
+.setup .seg .label { min-width: 3.5em; }
+
+/* ── 幕のボス ── */
+.bossbox { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; border: 1px solid var(--pink); background: var(--sheet); padding: 12px; margin-block: 10px; }
+.bossbox h3 { font-family: var(--display); font-weight: 400; font-size: 20px; color: var(--pink); }
+.bossbox h4 { font-size: 13px; margin-top: 6px; }
+.bossbox ul { padding-left: 1.2em; font-size: 13px; }
+.bossin { display: grid; gap: 4px; min-width: 0; }
+.nboss { display: flex; gap: 8px; align-items: center; }
+@media (max-width: 560px) { .bossbox { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── サイバーサイコシス ── */
+.ln.mad { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); box-shadow: inset 3px 0 0 var(--red); }
+.ln.mad .who { color: var(--red); }
+.n-deserter .mk, .mk.n-deserter { color: var(--red); }
+.n-deserter { border-color: var(--red); }
+.bonus.squad button .label { color: var(--pink); }
+.carerow.laz { flex-wrap: wrap; }
+.carerow.laz .seg { display: flex; flex-wrap: wrap; gap: 4px; }

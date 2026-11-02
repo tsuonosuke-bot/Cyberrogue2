@@ -108,7 +108,7 @@ test('winning the act-1 big job asks for an ally, then act 2 brings that ally’
   assert.equal(run('G.awaitChoice==="cipher" && G.run.act===2 && G.run.slot===1 && G.rank===2'),true);
   assert.equal(run('out.events.some(e=>e.text.includes("第2幕"))'),true);
   run('chooseBranch(1);');
-  assert.equal(run('G.flags.ally==="verde" && Run.nodeInfo(G.run.map[4][0]).title===CAMPAIGN_JOBS.camp3_verde.title'),true);
+  assert.equal(run('G.flags.ally==="verde" && Run.nodeInfo(G.run.map[4][0]).title===RUN_JOBS.run_cargo_verde.title && Run.nodeInfo(G.run.map[4][0]).boss==="kaname"'),true);
 });
 
 test('act 3 opens on the ally’s coordinator chapter; clearing it ends the run as a clear',()=>{

@@ -1,0 +1,13 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixer's Cut — local smoke fixture</title><link rel="stylesheet" href="/style.css">
+<canvas id="city" aria-hidden="true"></canvas><div id="app"></div><div id="modal" class="modal" hidden></div><div id="fx" class="fx" hidden></div>
+<script src="/js/data.js"></script><script src="/js/engine.js"></script><script src="/js/world.js"></script><script src="/js/run.js"></script><script src="/js/art.js"></script><script src="/js/comfort.js"></script><script src="/js/ui.js"></script>
+<script>
+// Deliberately isolated to localhost test page; never persists over a player's save.
+save = () => {};
+newGame(); G.storyQueue=[]; G.money=100000; G.board=[]; G.conditions={}; G.news=2;
+G.runners.forEach(r=>{r.contract='exclusive';r.stipend=100;});
+addJob({id:'smoke',title:'動作確認：警報で停止',rank:1,nights:1,payout:2000,cred:1,heat:10,client:'resident',target:'verde',req:[],desc:'警報のあとに続行か撤退を選ぶローカル検証用依頼',routes:[{name:'検証',note:'必ず警報が鳴る',field:[T(100,'警報テスト'),O('後続の目標'),_,_,_],net:N5()}]},true);
+G.run.tonight={type:'job'}; // ラン中は、その夜の行き先が依頼のときだけ依頼の画面が開く
+UI.tab='board'; render();
+</script>

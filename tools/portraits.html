@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<base href="../">
+<title>肖像の確認</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { padding-block: 20px 40px; }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 16px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); padding: 10px; display: grid; gap: 6px; }
+  .card .pf { width: 100%; height: auto; aspect-ratio: 1; cursor: crosshair; }
+  .card code { font-family: var(--mono); font-size: 12px; color: var(--blue); }
+  .dot { position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: #4fe3a0; pointer-events: none; }
+  #out { font-family: var(--mono); font-size: 12.5px; background: var(--log-bg); padding: 10px 12px; min-height: 2.4em; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 class="sec">肖像の確認</h1>
+  <p class="dim">本番の絵に差し替えたら、義体の重ね描きがずれていないかをここで確かめます。絵をクリックすると、その位置の座標（0〜100）が下に出ます。PORTRAIT_ANCHOR_OVERRIDES に書くときに使ってください。</p>
+  <div class="bar">
+    <label><input type="checkbox" id="all" checked> 義体をすべて重ねる</label>
+    <label>人間性 <input type="range" id="hum" min="0" max="50" value="50"> <span id="humv" class="num">50</span>/50</label>
+    <label><input type="checkbox" id="dots" checked> 位置の印を出す</label>
+  </div>
+  <div id="out">ここに座標が出ます</div>
+  <div class="grid" id="grid"></div>
+</div>
+<script src="js/data.js"></script>
+<script src="js/art.js"></script>
+<script>
+const keys = [];
+for (const role of Object.keys(ROLES)) for (const g of Object.keys(GENDERS)) for (let v = 1; v <= PORTRAIT_VARIANTS; v++) keys.push(`${role}-${g}-${v}`);
+keys.push(...Object.keys(STORY_RUNNERS));
+const grid = document.getElementById('grid');
+const out = document.getElementById('out');
+
+function draw() {
+  const all = document.getElementById('all').checked;
+  const hum = +document.getElementById('hum').value;
+  const showDots = document.getElementById('dots').checked;
+  document.getElementById('humv').textContent = hum;
+  grid.innerHTML = keys.map((k) => {
+    const r = { id: 0, name: k, role: 'solo', cyber: all ? Object.keys(CYBER) : [], humanity: hum, base: { EMP: 5 } };
+    const A = { ...PORTRAIT_ANCHORS, ...(PORTRAIT_ANCHOR_OVERRIDES[k] || {}) };
+    const dots = showDots ? Object.values(A).map((p) => `<i class="dot" style="left:${p[0]}%;top:${p[1]}%"></i>`).join('') : '';
+    const html = portraitImg(r, '', { key: k, glitch: 0 }).replace('</span>', `${dots}</span>`);
+    return `<div class="card" data-k="${k}">${html}<code>${k}</code></div>`;
+  }).join('');
+}
+grid.addEventListener('click', (e) => {
+  const pf = e.target.closest('.pf');
+  if (!pf) return;
+  const b = pf.getBoundingClientRect();
+  const x = Math.round(((e.clientX - b.left) / b.width) * 1000) / 10;
+  const y = Math.round(((e.clientY - b.top) / b.height) * 1000) / 10;
+  out.textContent = `${pf.closest('.card').dataset.k}: [${x}, ${y}]`;
+});
+for (const id of ['all', 'hum', 'dots']) document.getElementById(id).addEventListener('input', draw);
+draw();
+</script>
+</body>
+</html>

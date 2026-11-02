@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512">
+<!-- placeholder -->
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1020"/><stop offset="1" stop-color="#1b0f25"/></linearGradient>
+<pattern id="dots" width="3" height="3" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="0.45" fill="#1f2b4c"/></pattern>
+<linearGradient id="skin" x1="0" x2="1"><stop offset="0.35" stop-color="#8f6352"/><stop offset="1" stop-color="#5e3d33"/></linearGradient>
+</defs>
+<rect width="100" height="100" fill="url(#bg)"/>
+<rect width="100" height="100" fill="url(#dots)"/>
+<circle cx="72" cy="28" r="28" fill="#ff4f9a" opacity=".13"/>
+
+<path d="M32 38 C30 14 70 14 68 38 L67 55 L58 52 L58 44 L42 44 L42 52 L33 55 Z" fill="#3a2a35"/>
+<path d="M8 100 C10 80 26 70 40 67 L60 67 C74 70 90 80 92 100 Z" fill="#4a556b"/>
+<rect x="43" y="52" width="14" height="17" rx="3" fill="#5e3d33"/>
+<ellipse cx="34.5" cy="41" rx="2.6" ry="4" fill="#5e3d33"/>
+<ellipse cx="65.5" cy="41" rx="2.6" ry="4" fill="#5e3d33"/>
+<ellipse cx="50" cy="38" rx="15" ry="19" fill="url(#skin)"/>
+<path d="M39 35.5 L46 35" stroke="#3a2a35" stroke-width="1.3" stroke-linecap="round"/>
+<path d="M54 35 L61 35.5" stroke="#3a2a35" stroke-width="1.3" stroke-linecap="round"/>
+<ellipse cx="43" cy="40" rx="2.7" ry="1.7" fill="#0a0d14"/>
+<ellipse cx="57" cy="40" rx="2.7" ry="1.7" fill="#0a0d14"/>
+<circle cx="42.2" cy="39.4" r="0.6" fill="#e9ebee"/>
+<circle cx="56.2" cy="39.4" r="0.6" fill="#e9ebee"/>
+<path d="M50 42 L48.6 47 L50.8 47.4" fill="none" stroke="#5e3d33" stroke-width="0.9" stroke-linecap="round"/>
+<path d="M45.5 51 Q50 53 54.5 51" fill="none" stroke="#c2477e" stroke-width="1.2" stroke-linecap="round"/>
+<path d="M34 33 C35 18 65 18 66 33 L66 31 L34 31 Z" fill="#3a2a35"/><rect x="34" y="27" width="32" height="5" fill="#3a2a35"/>
+<rect x="35" y="25" width="30" height="4.5" rx="2" fill="#4a556b"/><circle cx="43" cy="27.3" r="3.4" fill="#1e3f8a" stroke="#d2d9e6" stroke-width="0.8"/><circle cx="57" cy="27.3" r="3.4" fill="#1e3f8a" stroke="#d2d9e6" stroke-width="0.8"/><circle cx="42" cy="26.3" r="0.9" fill="#9cc0ff"/><circle cx="56" cy="26.3" r="0.9" fill="#9cc0ff"/>
+
+<path d="M62 24 C67 30 67 46 61 54" fill="none" stroke="#ff4f9a" stroke-width="0.9" opacity=".75"/>
+<rect x="2" y="92.5" width="53.6" height="5.5" fill="#05070d" opacity=".75"/>
+<text x="4" y="96.7" font-family="Hiragino Sans, Yu Gothic, sans-serif" font-size="3.2" fill="#9aa2b1">仮 ・ テック ・ 女性 ・ 2</text>
+</svg>

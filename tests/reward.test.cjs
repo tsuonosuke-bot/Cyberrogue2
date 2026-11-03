@@ -140,3 +140,46 @@ test('a won job puts the reward in the settlement; a lost job does not',()=>{
   run(`G.pending=[]; Run.choose(0); G.board=[]; endNight();`);
   assert.equal(run('G.pending.length'),0);
 });
+
+test('walk-ins: two candidates a night, missing roles first, paid by act, gone the next night',()=>{
+  const run=game();
+  run('G.runners=G.runners.slice(0,2); var have=G.runners.map(r=>r.role); var w=Run.walkins();');
+  assert.equal(run('w.length'),2);
+  assert.equal(run('w.every(r=>!have.includes(r.role) && r.contract==="exclusive" && r.stipend===0)'),true);
+  assert.equal(run('Run.walkins()===w'),true); // 同じ夜は同じ顔ぶれ
+  run('G.money=1000;');
+  assert.equal(run('Run.hireWalkin(0)'),'契約金が足りません');
+  run('G.money=5000; var x=w[0];');
+  assert.equal(run('Run.hireWalkin(0)'),null);
+  assert.equal(run('G.money===3500 && G.runners.includes(x) && Run.walkins().length===1'),true);
+  run('G.run.act=3; G.money=4000;');
+  assert.equal(run('Run.hireWalkin(0)'),'契約金が足りません'); // 第3幕は5,000cr
+  run('G.run.map[1]=[{type:"hideout"}]; Run.choose(0); endNight();');
+  assert.equal(run('Run.walkins().length===2 && !Run.walkins().includes(x)'),true);
+});
+
+test('losing a runner guarantees a runner in the next reward; firing one does not',()=>{
+  for (let seed=1; seed<=40; seed++) {
+    const run=game(seed);
+    run('G.run.act=2; killRunner(G.runners[0],"t");');
+    const b=JSON.parse(run(`JSON.stringify(Run.makeReward(${ONE_NIGHT}))`));
+    assert.ok(b.opts.some(o=>o.kind==='runner'),`seed ${seed}`);
+    assert.equal(run('G.run.refill'),false);
+  }
+  const run=game();
+  run('fire(G.runners[0]);');
+  assert.equal(run('!!G.run.refill'),false);
+  run('leaveRunner(G.runners[0]);');
+  assert.equal(run('G.run.refill'),true);
+});
+
+test('the alley offers more traits than the street at large',()=>{
+  let alley=0, walk=0;
+  for (let seed=1; seed<=200; seed++) {
+    const run=game(seed);
+    run('refreshScouts({traitMult:2});');
+    alley+=run('G.scouts.filter(r=>r.trait).length');
+    walk+=run('Run.walkins().filter(r=>r.trait).length')*1.5; // 顔見せは2人、路地裏は3人
+  }
+  assert.ok(alley>walk*1.4,`alley ${alley} vs walk-ins ${walk}`);
+});

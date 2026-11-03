@@ -268,7 +268,7 @@ function clearSave() {
 
 /* ───────── スカウトと依頼盤 ───────── */
 
-function refreshScouts() {
+function refreshScouts(opt = {}) {
   G.scouts = [];
   const hiredOrGone = (k) => G.runners.some((r) => r.story === k) || G.memorial.some((r) => r.story === k) || G.flags['story_' + k];
   if (reached('cipher') && !hiredOrGone('kagerou')) G.scouts.push(makeStory('kagerou'));
@@ -279,7 +279,7 @@ function refreshScouts() {
   // 隊にいないロールを先に出す（pop は末尾から取る）
   const have = new Set(G.runners.map((r) => r.role));
   const roles = [...shuffle(Object.keys(ROLES).filter((k) => have.has(k))), ...shuffle(Object.keys(ROLES).filter((k) => !have.has(k)))];
-  while (G.scouts.length < 3) G.scouts.push(makeRunner(roles.pop(), World.scoutOptions()));
+  while (G.scouts.length < 3) G.scouts.push(makeRunner(roles.pop(), { ...World.scoutOptions(), ...opt }));
 }
 
 const hasJob = (tplId) => G.board.some((j) => j.tpl === tplId) || G.missions.some((m) => m.job.tpl === tplId);
@@ -1122,10 +1122,12 @@ function missionDecision(uid, proceed) {
 
 function killRunner(r, cause) {
   G.runners = G.runners.filter((x) => x !== r);
+  if (G.run) G.run.refill = true; // 次の報酬に補充の候補を必ず出す
   G.memorial.push({ name: r.name, role: r.role, story: r.story, night: G.night, cause, jobs: r.jobs });
 }
 function leaveRunner(r) {
   G.runners = G.runners.filter((x) => x !== r);
+  if (G.run) G.run.refill = true;
   if (r.story) G.flags['story_' + r.story] = true;
 }
 
@@ -1504,7 +1506,9 @@ function setContract(r, contract) {
 }
 function fire(r) {
   if (r.status === 'mission') return '仕事中のランナーは切れません';
+  const refill = G.run && G.run.refill;
   leaveRunner(r);
+  if (G.run) G.run.refill = refill; // 自分で外したときは補充の候補を約束しない
   return null;
 }
 

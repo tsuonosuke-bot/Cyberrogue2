@@ -88,6 +88,9 @@ function runnerCard(r, mode, idx) {
       : `<button data-act="askfire" data-r="${r.id}" ${busy ? 'disabled' : ''}>隊から外す</button>`}</div>`;
   } else if (mode === 'scout' && G.run) {
     actions = `<div class="actions"><button class="primary" data-act="hire" data-v="${idx}">雇う</button></div>`;
+  } else if (mode === 'walkin') {
+    const fee = Run.walkinFee(), full = G.runners.length >= ROSTER_MAX;
+    actions = `<div class="actions"><button class="primary" data-act="walkin" data-v="${idx}" ${full || fee > G.money ? 'disabled' : ''}>${full ? '隊がいっぱい' : `雇う（契約金 ${fmt(fee)}cr）`}</button></div>`;
   } else if (mode === 'roster') {
     contract = r.contract === 'exclusive'
       ? `<div class="contract"><span class="chip b">専属</span> 手当 <b class="num">${r.stipend}cr</b>/夜 ・ 忠誠 <b class="num">${r.loyalty}</b>${r.loyalty < 25 ? ' <span class="pink">離れそう</span>' : ''}</div>`
@@ -251,9 +254,9 @@ function viewHome() {
   const tut = run.act === 1 && G.night <= 2 ? `<section class="panel tut hint"><h3>ランの進め方</h3><ol>
       <li>1ランは<b>3幕・12夜</b>。毎夜、地区マップの<b>行き先を1つタップ</b>する。先の夜まで見えるので、道を考えて選ぶ</li>
       <li>依頼は編成して送り出すと夜が明ける。路地裏・闇医者・古物屋は、用事を済ませたら下のボタンで夜を明かす</li>
-      <li><b>依頼</b>で派遣して稼ぐ。<b>路地裏</b>で雇い、<b>闇医者</b>と<b>古物屋</b>で強くし、<b>隠れ家</b>で立て直す</li>
+      <li><b>依頼</b>で派遣して稼ぐ。<b>路地裏</b>か、隊の画面の<b>顔見せ</b>（夜を使わないが契約金がかかる）で雇い、<b>闇医者</b>と<b>古物屋</b>で強くし、<b>隠れ家</b>で立て直す</li>
       <li>各幕の4夜目は<b>大仕事</b>。失敗しても次の夜に一度だけ挑み直せる。2度目も失敗するとランは終わる</li>
-      <li>第1幕の大仕事には<b>ネットランナー</b>が要る。路地裏で探しておくこと</li>
+      <li>第1幕の大仕事には<b>ネットランナー</b>が要る。路地裏か顔見せで探しておくこと</li>
       <li>所持金が3夜続けてマイナス、または隊が全滅しても終わり</li>
     </ol></section>` : '';
   return `
@@ -286,7 +289,18 @@ function viewCrew() {
     <h2 class="sec">隊 <span class="label num">${G.runners.length}/${ROSTER_MAX}</span></h2>
     <div class="runners">${G.runners.map((r) => runnerCard(r, 'roster')).join('') || '<p class="dim">誰もいません。路地裏で雇ってください。</p>'}</div>
   </section>
+  ${G.run && !G.ended ? viewWalkins() : ''}
   ${G.memorial.length ? `<section class="panel memorial"><h3>帰ってこなかった者</h3><ul>${G.memorial.map((m) => `<li><b>${esc(m.name)}</b>（${ROLES[m.role].name}） 夜${m.night}・${esc(m.cause)}</li>`).join('')}</ul></section>` : ''}`;
+}
+
+/* 顔見せ：夜を使わずに雇える今夜の候補（ラン中だけ） */
+function viewWalkins() {
+  const list = Run.walkins();
+  return `<section class="roster walkins">
+    <h2 class="sec">顔見せ <span class="label">今夜の候補</span></h2>
+    <p class="lead hint">隠れ家に顔を出したランナー。夜を使わずに雇えますが、契約金 <b class="num">${fmt(Run.walkinFee())}cr</b> がかかります（幕が進むと上がる）。候補は毎晩入れ替わります。路地裏ならただで、資質持ちも出やすくなります。</p>
+    <div class="runners">${list.map((r, i) => runnerCard(r, 'walkin', i)).join('') || '<p class="dim">今夜の候補はもういません。</p>'}</div>
+  </section>`;
 }
 
 /* ───────── 事件 ───────── */
@@ -309,7 +323,7 @@ function viewEvent() {
 function viewScout() {
   return `<section>
     <h2 class="sec">路地裏 <span class="label">今夜の候補</span></h2>
-    <p class="lead hint">候補は今夜かぎりです。隊にいないロールが先に並びます。${G.run ? '雇った人の分け前はフィクサーに入り、毎晩の手当はかかりません。' : `<b>歩合</b>は毎晩の支払いがなく、分け前は本人のもの。忠誠は上がらず、不満がたまると引き抜かれます。<b>専属</b>は待機中も手当がかかるかわりに、分け前がフィクサーに入り、義体や装備もフィクサーの所持金で買えます。`}</p>
+    <p class="lead hint">候補は今夜かぎりです。隊にいないロールが先に並びます。${G.run ? '路地裏の候補は契約金なしで雇え、資質持ちも出やすい。雇った人の分け前はフィクサーに入り、毎晩の手当はかかりません。' : `<b>歩合</b>は毎晩の支払いがなく、分け前は本人のもの。忠誠は上がらず、不満がたまると引き抜かれます。<b>専属</b>は待機中も手当がかかるかわりに、分け前がフィクサーに入り、義体や装備もフィクサーの所持金で買えます。`}</p>
     <p class="dim">抱えているランナー ${G.runners.length}/${ROSTER_MAX}人</p>
     <div class="runners">${G.scouts.map((r, i) => runnerCard(r, 'scout', i)).join('') || '<p class="dim">今夜の候補はもういません。</p>'}</div>
   </section>`;
@@ -1243,6 +1257,10 @@ const H_ = {
     save(); H_.night(); // 送り出したら夜が明ける
   },
   recall(b) { act(() => recall(+b.dataset.v)); },
+  walkin(b) {
+    const r = Run.walkins()[+b.dataset.v];
+    act(() => Run.hireWalkin(+b.dataset.v) || (toast(`${r.name}が隊に加わった`), null));
+  },
   hire(b) {
     const r = G.scouts[+b.dataset.v];
     act(() => hire(+b.dataset.v, b.dataset.c) || (toast(G.run ? `${r.name}が隊に加わった` : `${r.name}と${b.dataset.c === 'exclusive' ? '専属' : '歩合'}で組んだ`), null));

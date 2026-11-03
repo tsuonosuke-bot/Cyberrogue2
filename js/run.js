@@ -46,6 +46,10 @@ const Run = (() => {
     ? [0, 1, 2].map((i) => (ROLES[(opt.roles || [])[i]] ? opt.roles[i] : PATCHWORK_DEFAULT[i]))
     : BACKGROUNDS[bg].crew);
   const HIDEOUT_HUM = 5;
+  // 顔見せ：夜を使わずに隊の画面から雇える候補。契約金がかかる。路地裏はただで、資質持ちが出やすい
+  const WALKINS = 2;
+  const WALKIN_FEE = { 1: 1500, 2: 3000, 3: 5000 };
+  const ALLEY_TRAIT = 2;
   // ランの始まりの語り。キャンペーン版の第1章（借金40夜）の代わりに出す
   const INTRO = {
     kicker: '第1幕', title: '十二夜',
@@ -65,6 +69,31 @@ const Run = (() => {
     let x = rnd() * ws.reduce((s, w) => s + w, 0);
     for (let i = 0; i < types.length; i++) if ((x -= ws[i]) < 0) return types[i];
     return types[types.length - 1];
+  }
+
+  /* ───────── 顔見せ ───────── */
+
+  /* 今夜の顔見せ。隊にいないロールを先に出す。前の夜の候補は残らない */
+  function walkins() {
+    const run = R();
+    if (run.walkins) return run.walkins;
+    const have = new Set(G.runners.map((r) => r.role));
+    const roles = [...shuffle(Object.keys(ROLES).filter((k) => !have.has(k))), ...shuffle(Object.keys(ROLES).filter((k) => have.has(k)))];
+    run.walkins = roles.slice(0, WALKINS).map((role) => crewTerms(makeRunner(role, { pref: 'any', ...World.scoutOptions() })));
+    if (run.bg === 'gang') for (const r of run.walkins) if (rnd() < 0.6) streetChrome(r);
+    return run.walkins;
+  }
+  const walkinFee = () => WALKIN_FEE[R().act];
+  function hireWalkin(i) {
+    const list = walkins(), r = list[i];
+    if (!r) return '候補が見つかりません';
+    if (G.runners.length >= ROSTER_MAX) return `抱えられるのは${ROSTER_MAX}人までです`;
+    if (G.money < walkinFee()) return '契約金が足りません';
+    G.money -= walkinFee();
+    r.joined = G.night;
+    G.runners.push(r);
+    list.splice(i, 1);
+    return null;
   }
 
   /* ───────── 地区マップ ───────── */
@@ -246,7 +275,7 @@ const Run = (() => {
     if (n.type === 'boss') { const j = addJob(bossJob(), true); n.uid = j.uid; }
     if (n.type === 'deserter') { const d = run.deserters.find((x) => x.id === n.dz); const j = addJob(clone(d.tpl), true); n.uid = j.uid; }
     if (n.type === 'alley') {
-      refreshScouts();
+      refreshScouts({ traitMult: ALLEY_TRAIT });
       if (run.bg === 'gang') for (const r of G.scouts) if (!r.story && rnd() < 0.6) streetChrome(r);
     }
     if (n.type === 'hideout') {
@@ -398,6 +427,7 @@ const Run = (() => {
     const keep = (o) => { if (!o || opts.length >= size) return false; opts.push(o); used.push(o.id || o.kind); return true; };
     const rare = !!(job.hard || job.runBoss || job.nights >= 2);
     keep(bossDrop(job, res));
+    if (R().refill && keep(rewardOf('runner', a, false, used))) R().refill = false; // 欠員の後は補充の候補を必ず出す
     if (rare) for (const kind of shuffle(['cyber', 'gear', 'runner'])) if (keep(rewardOf(kind, a, true, used))) break;
     for (let guard = 0; opts.length < size && guard < 40; guard++) keep(rewardOf(pickW(Object.keys(REWARD_W), (k) => REWARD_W[k]), a, false, used));
     return { run: true, title: job.title, rare, opts: shuffle(opts) };
@@ -445,6 +475,7 @@ const Run = (() => {
     if (run.event && run.event.done) out.events.push({ kind: 'ok', text: `${EVENTS[run.event.key].title}：${run.event.done}` });
     run.event = null;
     run.tonight = null;
+    run.walkins = null; // 顔見せは毎晩入れ替わる
     // 期限までに止めに行かなかった元部下は、鎮圧班が片付ける
     for (const d of (run.deserters || []).filter((x) => x.until < G.night)) {
       G.memorial.push({ name: d.name, role: d.role, night: G.night, cause: '鎮圧班が片付けた（元部下）', jobs: 0 });
@@ -558,5 +589,5 @@ const Run = (() => {
     return k ? GOALS[k] : fallback;
   };
 
-  return { BACKGROUNDS, BOSS, crew, crewOf, checkParts, addDeserter, deserterDone, options, setLazarus, bossJob, REWARD_CR, SKIP_CR, makeReward, takeReward, cyberTakers, ACTS, DEST, EVENTS, INTRO, storyGoal, SLOTS, start, genMap, choose, resolveEvent, nextNight, nodeInfo, tonightTab, canEndNight, loadMeta, finish, depth, act };
+  return { BACKGROUNDS, BOSS, crew, crewOf, checkParts, addDeserter, deserterDone, options, setLazarus, bossJob, REWARD_CR, SKIP_CR, makeReward, takeReward, cyberTakers, ACTS, DEST, EVENTS, INTRO, storyGoal, SLOTS, start, genMap, choose, walkins, hireWalkin, walkinFee, resolveEvent, nextNight, nodeInfo, tonightTab, canEndNight, loadMeta, finish, depth, act };
 })();

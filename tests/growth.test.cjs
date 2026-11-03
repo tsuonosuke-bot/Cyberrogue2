@@ -7,12 +7,12 @@ function game(value=.5) {
   const math=Object.create(Math);math.random=()=>value;
   const c=vm.createContext({console,Math:math,localStorage:{getItem(){return null;},setItem(){},removeItem(){}}});
   const run=s=>vm.runInContext(s,c);
-  for(const f of ['data','engine','world','run'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
-  run('newGame();G.money=20000;G.news=3;G.conditions={};G.board=[];G.runners=G.runners.slice(0,1);G.runners[0].contract="exclusive";G.runners[0].stipend=100;');
+  for(const f of ['data','engine','world','run','meta'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
+  run('newGame(undefined,{first:true});G.money=20000;G.news=3;G.conditions={};G.board=[];G.runners=G.runners.slice(0,1);');
   return run;
 }
 
-test('gear adds skills, swaps by slot with a half refund, and commission runners pay from their wallet',()=>{
+test('gear adds skills and swaps by slot with a half refund',()=>{
   const run=game();
   run('const r=G.runners[0]; const base=skill(r,"射撃"); buyGear(r,"pistol");');
   assert.equal(run('skill(r,"射撃")===base+1 && G.money===20000-gearPrice("pistol")'),true);
@@ -21,8 +21,8 @@ test('gear adds skills, swaps by slot with a half refund, and commission runners
   assert.equal(run('buyGear(r,"smg")'),'もう持っています');
   run('const am=armorMax(r); buyGear(r,"jacket");');
   assert.equal(run('armorMax(r)===am+2 && r.armor===armorMax(r)'),true);
-  run('r.contract="commission"; r.wallet=500;');
-  assert.match(run('buyGear(r,"deck")'),/手持ち/);
+  run('G.money=500;');
+  assert.equal(run('buyGear(r,"deck")'),'所持金が足りません');
 });
 
 test('real missions grant skill experience; skills level up and settlement reports growth and credits',()=>{

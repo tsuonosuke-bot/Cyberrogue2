@@ -89,35 +89,35 @@ const BIOS = {
 /* 物語つきのランナー（3人） */
 const STORY_RUNNERS = {
   kagerou: {
-    name: 'カゲロウ', gender: 'x', role: 'net', origin: 'corp', contact: 'hakurou', pref: 'exclusive',
+    name: 'カゲロウ', gender: 'x', role: 'net', origin: 'corp', contact: 'hakurou',
     base: { BODY: 4, REF: 5, INT: 9, TECH: 6, COOL: 5, EMP: 6 },
     skills: { インターフェース: 7, 電子: 4, 知覚: 4, 隠密: 2, 回避: 2, 射撃: 1, 説得: 2 },
     cyber: [],
     bio: 'ハクロウ通信の元回線技師。社内で見てはいけないログを見て、三日後に退職届も出さずに消えた。前任のハシバとは面識があったらしい。',
   },
   yoru: {
-    name: 'ヨル', gender: 'm', role: 'solo', origin: 'corp', contact: 'mitsukane', pref: 'any',
+    name: 'ヨル', gender: 'm', role: 'solo', origin: 'corp', contact: 'mitsukane',
     base: { BODY: 7, REF: 8, INT: 5, TECH: 4, COOL: 7, EMP: 5 },
     skills: { 射撃: 6, 回避: 5, 隠密: 3, 知覚: 3, 運転: 2, 説得: 2 },
     cyber: ['arm', 'optics'], trait: 'tolerant',
     bio: 'ミツカネ重工の元警備主任。会社に義体を回収される前に逃げた。腕も目も、もう半分は自分のものではない。',
   },
   haruka: {
-    name: 'ハルカ', gender: 'f', role: 'med', origin: 'street', contact: 'gang', pref: 'any',
+    name: 'ハルカ', gender: 'f', role: 'med', origin: 'street', contact: 'gang',
     base: { BODY: 5, REF: 5, INT: 7, TECH: 8, COOL: 6, EMP: 8 },
     skills: { 医療: 7, 知覚: 4, 回避: 3, 射撃: 2, 説得: 3, 隠密: 2 },
     cyber: [],
     bio: '屋台街で無許可の診療所を開いていた。白蛇会に店を焼かれてから、誰とも組んでいない。',
   },
   shigure: {
-    name: 'シグレ', gender: 'f', role: 'driver', origin: 'drifter', contact: 'resident', pref: 'any',
+    name: 'シグレ', gender: 'f', role: 'driver', origin: 'drifter', contact: 'resident',
     base: { BODY: 5, REF: 9, INT: 5, TECH: 6, COOL: 6, EMP: 5 },
     skills: { 運転: 7, 射撃: 3, 回避: 4, 知覚: 3, 隠密: 1 },
     cyber: ['steering'],
     bio: '湾岸の非合法レースで、三年間一度も負けなかった。最後の賭けでクロガネに愛車を担保に取られ、今は他人の車を転がしている。',
   },
   mikoto: {
-    name: 'ミコト', gender: 'x', role: 'tech', origin: 'corp', contact: 'verde', pref: 'exclusive',
+    name: 'ミコト', gender: 'x', role: 'tech', origin: 'corp', contact: 'verde',
     base: { BODY: 4, REF: 5, INT: 7, TECH: 9, COOL: 4, EMP: 5 },
     skills: { 電子: 7, 知覚: 4, 射撃: 2, 回避: 2, 隠密: 3, 医療: 1 },
     cyber: ['toolfinger'],
@@ -206,6 +206,52 @@ const GEAR = {
   qpick: { name: '量子ピッキング端末', slot: 'tool', price: 2600, mods: { 電子: 3 }, roles: ['tech'], desc: '電子+3' },
   // ボスが落とす装備（drop）。古物屋では売らない
   denkiDeck: { name: '電気屋のデッキ', slot: 'tool', price: 4000, mods: { インターフェース: 2 }, iceguard: true, roles: ['net'], drop: true, desc: 'インターフェース+2。黒ICEの逆流を半分にする。電気屋が鍵をこじ開けるのに使っていた' },
+};
+
+/* 型。義体・装備・資質はどれも型を1つか2つ持つ。依頼に送り出した人の型を数え、2つ・4つ・6つで隊全体に効果が付く（engine.js の typeOn） */
+const TYPES = {
+  stealth: { name: '隠密', fx: { 2: '隠密の判定+1', 4: '隠密に成功すると、次の交戦の敵−1', 6: '依頼ごとに1回、交戦を丸ごと避ける' } },
+  fire: { name: '火力', fx: { 2: '1ラウンド目の射撃+1', 4: '敵を倒した人が、そのラウンドにもう一度撃つ', 6: '待ち伏せされず、1ラウンド目は必ず先に撃つ' } },
+  net: { name: '電脳', fx: { 2: 'ICE判定+2', 4: 'ネットを抜けると、次の交戦の敵のDVと攻撃−1', 6: '黒ICEの逆流を受けない' } },
+  chrome: { name: '義体狂い', fx: { 2: '人間性30以下の人の射撃+1', 4: '人間性30以下の人の回避+1', 6: '暴走中の人が倒れない（その交戦だけ）' } },
+  endure: { name: '持久', fx: { 2: '交戦のあと全員HP+5。重傷の判定−2を受けない', 4: '交戦を4ラウンドまで粘れる（ふつうは3ラウンドで撤退）。死亡セーブ+2', 6: '依頼ごとに1回、死ぬはずの人が動けないだけで済む' } },
+};
+const TYPE_STEPS = [2, 4, 6];
+const CYBER_TYPES = {
+  synapse: ['fire'], reflex: ['fire', 'chrome'], reflex3: ['fire', 'chrome'], steering: ['endure'], steering2: ['endure'], painblock: ['endure', 'chrome'],
+  coproc: ['net'], coproc2: ['net'], tacai: ['stealth'], tacai2: ['stealth', 'chrome'], jack: ['net'], jack2: ['net', 'chrome'], firewall: ['net'], emochip: ['stealth', 'chrome'],
+  optics: ['fire'], optics2: ['fire'], ears: ['stealth'], ears2: ['stealth'], voice: ['stealth'], voice2: ['stealth'],
+  arm: ['fire'], arm2: ['fire', 'chrome'], toolfinger: ['net'], toolfinger2: ['net'],
+  plating: ['endure'], milplate: ['endure', 'chrome'], plating3: ['endure', 'chrome'], chameleon: ['stealth'],
+  medkit: ['endure'], heart: ['endure'], heart2: ['endure', 'chrome'], kanameEye: ['fire', 'stealth'],
+};
+const GEAR_TYPES = {
+  pistol: ['fire'], smg: ['fire'], aprifle: ['fire'], railgun: ['fire'], silenced: ['stealth', 'fire'], taser: ['stealth'],
+  jacket: ['endure'], heavyvest: ['endure'], weave: ['endure'], poncho: ['stealth'], icehood: ['net', 'endure'],
+  deck: ['net'], milDeck: ['net'], toolkit: ['net'], qpick: ['net'], denkiDeck: ['net'],
+  medbag: ['endure'], scanner: ['stealth'], rig: ['endure'], earpiece: ['stealth'], decoy: ['endure'], fakeid: ['stealth'],
+};
+const TRAIT_TYPES = { anomaly: ['chrome'], tolerant: ['chrome'] };
+for (const [k, t] of Object.entries(CYBER_TYPES)) CYBER[k].types = t;
+for (const [k, t] of Object.entries(GEAR_TYPES)) GEAR[k].types = t;
+for (const [k, t] of Object.entries(TRAIT_TYPES)) TRAITS[k].types = t;
+
+/* コネ。ラン中ずっと効く特殊効果。報酬の3つ目の枠で手に入る。boss のコネは大仕事の報酬にだけ出て、強いかわりに弱みを持つ */
+const CONNECTIONS = {
+  blackmarket: { name: '闇市の顔役', desc: '古物屋と闇医者が2割引き' },
+  gangDebt: { name: '白蛇会の貸し', desc: '臨時雇いが各幕1回無料（大仕事の無料とは別）' },
+  dawnDoc: { name: '夜明けの闇医者', desc: '隠れ家の夜、人間性がいちばん低い人の人間性+10' },
+  scanner: { name: '警察無線の盗聴', desc: '鎮圧班をかばっても、市警の手配がつかない' },
+  courier: { name: '運び屋の顔', desc: '運転と逃走の判定+2' },
+  veteran: { name: '古参の勘', desc: '知覚の判定+2（狙撃手・罠・隠れたボス）' },
+  informant: { name: '情報屋の常連', desc: '情報の値段が半分' },
+  insurance: { name: '闇の保険', desc: '隊員が死ぬたびに1,500cr' },
+  scavenger: { name: '拾い屋', desc: '依頼に成功するたびに+300cr' },
+  nightBroker: { name: '夜の顔役', desc: '顔見せの候補+1、契約金−30%' },
+  brokenConscience: { name: '壊れた良心', boss: true, desc: '義体の人間性コスト−1（最低1）', weak: '隠れ家で人間性が戻らない' },
+  bloodOath: { name: '血の誓い', boss: true, desc: '全員の射撃+1', weak: '依頼のたびに、送り出した人の人間性−1' },
+  backer: { name: '企業の後ろ盾', boss: true, desc: '依頼の報酬+20%', weak: '依頼のたびに、標的の社のヒート+5' },
+  ironDiscipline: { name: '鉄の規律', boss: true, desc: '不安定な人が動揺しない', weak: '路地裏の候補が2人になる' },
 };
 
 /* フェーズ表の記法 */
@@ -441,141 +487,108 @@ const JOBS = [
       },
     ],
   },
+  // 1幕10夜にしたときに足した依頼。ランク2は4件、ランク3は6件（大仕事の前の夜にも置けるよう、ほとんど1夜）
+  {
+    id: 'r2_dockstrike', rank: 2, district: 'harbor', title: '港の詰所からスト破りを追い出す', client: 'resident', target: 'mitsukane',
+    nights: 1, payout: 5500, cred: 7, heat: 12, req: ['solo'],
+    desc: 'ミツカネが雇ったスト破りが、港の詰所に居座っている。労組は、夜明けまでに追い出してほしいと言う。',
+    routes: [
+      { name: '正面', note: '詰所に乗り込む', field: [S(15, '詰所の裏手'), C(3, 'スト破り', 'swarm', 17), K(15, '雇い主の名前を吐かせる'), O('詰所を取り戻す'), E(13, '港から離れる')], net: [I(13, '港のカメラ網', 'cam'), _, _, _, _] },
+      { name: 'はしけ', note: '海側から横づけする', field: [D(15, 'はしけで横づけ'), H(C(2, '見張り', 'sniper', 19)), C(2, 'スト破りの頭', 'armored', 17), O('詰所を取り戻す'), E(15, 'はしけで撤収')], net: N5() },
+    ],
+  },
+  {
+    id: 'r2_med_delivery', rank: 2, district: 'street', title: '屋台街の闇病院に横流しの薬を届ける', client: 'gang', target: 'verde',
+    nights: 1, payout: 5000, cred: 7, heat: 12, req: ['driver'],
+    desc: 'ヴェルデの倉庫から流れた抗拒絶剤。箱に追跡タグが埋めてあるかもしれない。',
+    routes: [
+      { name: '地下道', note: '裏道を車で抜ける', field: [D(15, '地下道を抜ける'), H(T(15, '追跡タグ')), C(2, '回収班', 'standard', 18), O('薬を届ける'), E(13, '散る')], net: [_, I(15, '追跡タグ', 'trace'), _, _, _] },
+      { name: '屋台の荷車', note: '人混みに紛れて運ぶ', field: [S(15, '屋台の人混み'), K(15, '検問をやり過ごす'), H(C(2, '検問の私兵', 'hacker', 19)), O('薬を届ける'), E(15, '屋台街から離脱')], net: [_, _, I(15, '検問の照会', 'trace'), _, _] },
+    ],
+  },
+  {
+    id: 'r2_drone', rank: 2, district: 'harbor', title: 'ハクロウの配送ドローンを乗っ取る', client: 'gang', target: 'hakurou',
+    nights: 1, payout: 6000, cred: 7, heat: 12, req: ['net'],
+    desc: '港の上を飛ぶ配送ドローンの鍵を、白蛇会が欲しがっている。',
+    routes: [
+      { name: '管制塔', note: '倉庫街の管制室に入る', field: [S(15, '倉庫街の管制塔'), GT(15, '管制室'), H(C(2, '管制の警備', 'sniper', 19)), O('ドローンの鍵'), E(15, '撤収')], net: [I(15, '外周ICE', 'trace'), I(15, '管制系', 'door'), _, _, H(I(17, '警報系', 'alarm'))] },
+      { name: '墜落', note: '1機を落として回収する', field: [D(15, 'ドローンを追う'), C(3, '回収に来た群れ', 'swarm', 17), _, O('機体を回収'), E(15, '港から逃走')], net: [I(15, '飛行制御', 'cam'), _, _, _, _] },
+    ],
+  },
+  {
+    id: 'r2_arena', rank: 2, district: 'street', title: '地下闘技場の八百長を潰す', client: 'resident', target: 'gang',
+    nights: 1, payout: 6000, cred: 7, heat: 12, req: ['solo', 'med'],
+    desc: '白蛇会の胴元が、選手に薬を盛って負けさせている。住民の賭け金が消えていく。',
+    routes: [
+      { name: '観客席', note: '賭け屋に紛れて控室へ', field: [K(15, '賭け屋に紛れる'), S(15, '控室へ'), C(2, '用心棒', 'armored', 18), O('薬物の証拠'), E(13, '人波に紛れる')], net: [_, I(15, '賭けの記録', 'trace'), _, _, _] },
+      { name: 'リング', note: '選手を診て薬を抜く', field: [M(15, '選手の薬を抜く'), H(C(3, '白蛇会の若い衆', 'swarm', 17)), K(17, '胴元を黙らせる'), O('八百長の証拠'), E(15, '裏口から撤収')], net: N5() },
+    ],
+  },
+  {
+    id: 'r3_elevator', rank: 3, district: 'upper', title: '上層：軌道エレベーターの貨物籠を止める', client: 'hakurou', target: 'mitsukane',
+    nights: 1, payout: 9500, cred: 10, heat: 16, req: ['tech', 'solo'],
+    desc: 'ミツカネの貨物籠が、軌道へ何かを上げようとしている。一晩だけ止めればいい。',
+    routes: [
+      { name: '整備路', note: '整備用シャフトを登る', field: [S(17, '整備用シャフト'), GT(17, '制動装置'), C(3, '警備部隊', 'armored'), O('籠を止める'), E(17, 'シャフトを降りる')], net: [I(17, '外周ICE', 'trace'), I(17, '制動系', 'door'), _, H(I(19, '警報系', 'alarm')), _] },
+      { name: '貨物', note: '荷主になりすます', field: [K(17, '荷主になりすます'), H(C(3, '荷の護衛', 'sniper')), GT(19, '貨物籠の錠'), O('籠を止める'), E(17, '撤収')], net: [I(17, '荷主照会', 'trace'), _, I(19, '籠の制御', 'door'), _, _] },
+    ],
+  },
+  {
+    id: 'r3_board', rank: 3, district: 'upper', title: '上層：取締役会の議事録を差し替える', client: 'verde', target: 'hakurou',
+    nights: 1, payout: 10000, cred: 10, heat: 16, req: ['net', 'tech'],
+    desc: 'ハクロウの取締役会が、ある合併を決めた夜の記録。中身を一行だけ書き換える。',
+    routes: [
+      { name: '会議室', note: '役員フロアに入る', field: [S(17, '役員フロア'), C(3, '役員警護', 'sniper'), GT(17, '会議室'), O('議事録を差し替える'), E(17, '撤収')], net: [I(17, '入館系', 'trace'), I(17, 'カメラ網', 'cam'), _, H(I(19, '警報系', 'alarm')), _] },
+      { name: '清掃', note: '清掃業者を装う', field: [K(17, '清掃業者を装う'), H(T(17, '圧力床')), GT(17, '役員室'), O('議事録を差し替える'), E(15, '清掃車で撤収')], net: [_, I(17, '床センサー', 'cam'), I(19, '役員室の錠', 'door'), _, _] },
+    ],
+  },
+  {
+    id: 'r3_doctor', rank: 3, district: 'upper', title: '上層：連れ去られた闇医者を取り戻す', client: 'resident', target: 'verde',
+    nights: 1, payout: 9000, cred: 10, heat: 16, req: ['med', 'driver'],
+    desc: '屋台街の闇医者が、ヴェルデの隔離病棟に連れていかれた。治験の「協力者」として。',
+    routes: [
+      { name: '病棟', note: '隔離病棟に忍び込む', field: [S(17, 'ヴェルデの隔離病棟'), C(3, '病棟の警備', 'hacker'), M(17, '拘束具を外す'), O('闇医者を確保'), E(17, '救急車で離脱')], net: [I(17, '病棟のICE', 'trace'), _, _, H(I(19, '警報系', 'alarm')), _] },
+      { name: '移送車', note: '移送の途中で奪う', field: [D(17, '移送車を追う'), C(4, '護送の私兵', 'swarm'), _, O('闇医者を確保'), E(17, '振り切る')], net: N5() },
+    ],
+  },
+  {
+    id: 'r3_core', rank: 3, district: 'upper', title: '上層：暴走したAIの中枢を焼く', client: 'mitsukane', target: 'hakurou',
+    nights: 1, payout: 10500, cred: 10, heat: 16, req: ['net'],
+    desc: 'ハクロウのデータ聖堂で、管理AIが自分を守りはじめた。止められるのは今夜だけ。',
+    routes: [
+      { name: '中枢', note: 'データ聖堂に入る', field: [S(17, 'データ聖堂'), H(C(3, 'AIの防衛ドローン', 'sniper')), GT(19, '冷却室'), O('中枢を焼く'), E(17, '撤収')], net: [I(19, '自己防衛ICE', 'trace'), _, I(19, '冷却制御', 'door'), _, H(I(21, '警報系', 'alarm'))] },
+      { name: '電源', note: '変電所から電源を落とす', field: [S(17, '変電所'), C(3, '保守部隊', 'armored'), T(17, '高圧線'), O('電源を落とす'), E(17, '撤収')], net: [_, I(17, '変電所の制御', 'cam'), _, _, _] },
+    ],
+  },
+  {
+    id: 'r3_cash_convoy', rank: 3, district: 'upper', title: '上層：現金輸送車を襲う', client: 'gang', target: 'mitsukane',
+    nights: 1, payout: 11000, cred: 10, heat: 16, req: ['driver', 'solo'],
+    desc: '企業区画を回るミツカネの現金輸送車。白蛇会が、帳簿に載らない金を欲しがっている。',
+    routes: [
+      { name: '高架', note: '高架で並走して乗り移る', field: [D(17, '高架で追いつく'), C(3, '輸送車の護衛', 'armored'), D(19, '並走して乗り移る'), O('現金'), E(17, '高架から離脱')], net: [I(17, '交通管制', 'cam'), _, _, _, _] },
+      { name: '待ち伏せ', note: '料金所で止める', field: [S(17, '料金所'), H(T(17, '追跡装置')), C(4, '輸送部隊', 'swarm'), O('現金'), E(19, '検問を突破')], net: [_, I(17, '追跡装置', 'trace'), _, _, _] },
+    ],
+  },
+  {
+    id: 'r3_garrison', rank: 3, district: 'upper', title: '上層：ミツカネ私兵の詰所を潰す', client: 'verde', target: 'mitsukane',
+    nights: 2, payout: 15500, cred: 12, heat: 20, req: ['solo', 'tech', 'med'],
+    desc: '企業区画の境に置かれたミツカネの私兵の詰所。二晩かけて、指揮系統ごと黙らせる。',
+    routes: [
+      {
+        name: '正面', note: '夜勤の交代を狙う',
+        field: [S(17, '私兵の詰所'), C(3, '夜勤の私兵', 'armored'), _, H(T(17, '自動銃座')), R('武器庫の陰'), GT(17, '司令室'), C(4, '即応部隊', 'sniper'), M(17, '負傷者の手当て'), O('指揮系統を断つ'), E(17, '撤収')],
+        net: [_, I(17, 'カメラ網', 'cam'), _, I(17, '銃座の制御', 'door'), _, I(19, '司令室の扉', 'door'), _, _, H(I(19, '警報系', 'alarm')), _],
+      },
+      {
+        name: '補給', note: '補給業者を装う',
+        field: [K(17, '補給業者を装う'), _, H(C(3, '詰所の警備', 'hacker')), GT(17, '補給庫'), R('補給庫'), _, C(3, '巡回', 'sniper'), S(19, '司令室へ'), O('指揮系統を断つ'), E(19, '包囲を破る')],
+        net: [I(17, '搬入記録', 'trace'), _, _, I(17, '補給庫の扉', 'door'), _, _, I(17, 'カメラ網', 'cam'), _, H(I(19, '警報系', 'alarm')), _],
+      },
+    ],
+  },
 ];
 
-/* 顔役の紹介依頼（評判ランクを上げる） */
-const INTRO_JOBS = {
-  1: {
-    id: 'intro1', rank: 1, district: 'harbor', title: '顔役の紹介：港のゴンドウの密輸船を守る', client: 'broker', target: null, intro: true,
-    nights: 1, payout: 3200, cred: 6, heat: 0, req: ['solo', 'driver'],
-    desc: '港の顔役ゴンドウが、新人の腕を見たいと言っている。成功すれば港湾の仕事が回ってくる。',
-    routes: [
-      { name: '船着き場', note: '荷積みの間、桟橋を守る', field: [S(15, '桟橋に潜む'), C(2, '荷を狙う連中'), _, H(C(3, '白蛇会の船')), E(15, '沖へ逃がす')], net: N5() },
-      { name: '沖合', note: '船に乗り込んで護衛する', field: [D(15, '夜の湾'), H(C(3, '海賊まがい')), R('船倉'), C(2, '乗り込んできた連中'), E(13, '入港')], net: N5() },
-    ],
-  },
-  2: {
-    id: 'intro2', rank: 2, district: 'upper', title: '顔役の紹介：上層の仲介人シラサギの試験', client: 'broker', target: 'hakurou', intro: true,
-    nights: 2, payout: 7000, cred: 10, heat: 10, req: ['net', 'solo', 'tech'],
-    desc: '上層の仲介人シラサギは、口の堅いフィクサーとしか組まない。ハクロウの役員端末を一晩のぞき見る。',
-    routes: [
-      {
-        name: '社員食堂', note: '夜間の搬入に紛れる',
-        field: [K(15, '業者を装う'), _, H(C(3, '夜間警備')), GT(15, '役員階'), R('仮眠室'), S(17, '役員室'), _, H(T(17, '生体認証床')), O('端末をのぞく'), S(15, '撤収')],
-        net: [I(15, '入館系', 'trace'), _, _, I(15, '扉の制御', 'door'), _, I(17, 'カメラ網', 'cam'), _, _, I(17, '役員端末', 'data'), _],
-      },
-    ],
-  },
-};
-
-/* メイン「ブラックボックス」の依頼。キーは依頼のID、campaign はこの依頼で終わる章のキー */
-const CAMPAIGN_JOBS = {
-  camp2: {
-    id: 'camp2', rank: 2, district: 'street', title: 'ブラックボックスをこじ開ける', client: 'self', target: null, campaign: 'cipher',
-    nights: 1, payout: 0, cred: 8, heat: 0, req: ['net', 'solo'],
-    desc: '前任ハシバが残した箱の暗号を破る。ダイブ中、隠れ家を嗅ぎつけた連中が来るかもしれない。',
-    routes: [
-      { name: '隠れ家でダイブ', note: 'ネットランナーの腕がすべて', field: [_, _, C(2, '嗅ぎつけた追っ手'), _, _], net: [I(15, '外殻', 'door'), I(17, '第二層', 'trace'), H(I(17, '自壊プログラム', 'data')), _, I(17, '中枢', 'data')] },
-    ],
-  },
-  camp3: {
-    id: 'camp3', rank: 2, district: 'harbor', title: '前任の足跡：港湾局の乗船名簿', client: 'self', target: 'mitsukane', campaign: 'cargo_hakurou',
-    nights: 2, payout: 3000, cred: 8, heat: 10, req: ['net', 'tech'],
-    desc: '箱の運送記録と照らし合わせるため、港湾局の記録庫から名簿の原本を持ち出す。持ち出した写しは別口で売れる。',
-    routes: [
-      {
-        name: '記録庫', note: '港湾局の古い地下書庫',
-        field: [S(15, '港湾局'), _, H(C(2, '夜警')), GT(15, '書庫の扉'), R('書架の陰'), _, H(T(15, '古い警報')), O('名簿の原本'), _, S(15, '撤収')],
-        net: [_, I(15, 'カメラ網', 'cam'), _, I(15, '書庫の施錠', 'door'), _, _, _, I(17, '電子目録', 'data'), _, _],
-      },
-    ],
-  },
-  camp4: {
-    id: 'camp4', rank: 3, district: 'upper', title: 'ハシバを消した者を追う', client: 'self', target: 'verde', campaign: 'coordinator_hakurou',
-    nights: 2, payout: 0, cred: 12, heat: 15, req: ['net', 'solo', 'driver', 'tech'],
-    desc: 'ハシバが最後に会った「調整役」は、ヴェルデ製薬の上層階に住んでいる。',
-    routes: [
-      {
-        name: '調整役の自宅', note: '企業区画上層の居住棟',
-        field: [S(17, '居住棟'), C(3, '私兵'), _, H(T(17, '対人センサー')), R('非常階段'), GT(17, '居室'), H(C(4, '戦闘用義体兵')), K(17, '調整役を問い詰める'), O('証言'), E(17, '逃走')],
-        net: [I(17, 'カメラ網', 'cam'), _, _, _, _, I(17, '居室の施錠', 'door'), _, _, H(I(19, '警報系', 'alarm')), _],
-      },
-    ],
-  },
-  camp3_mitsukane: {
-    id: 'camp3_mitsukane', rank: 2, district: 'harbor', title: '前任の足跡：ヴェルデの検疫倉庫から名簿を奪う', client: 'self', target: 'verde', campaign: 'cargo_mitsukane',
-    nights: 1, payout: 3000, cred: 8, heat: 10, req: ['solo', 'driver'],
-    desc: 'ミツカネの警備部が、港の夜警を一晩だけ外してくれる。名簿の原本は、ヴェルデの検疫倉庫に「預けて」あるらしい。',
-    routes: [
-      { name: '検疫倉庫', note: '正面から押し入る', field: [S(15, '検疫倉庫'), C(2, 'ヴェルデの検疫警備', 'armored', 17), H(T(15, '消毒ガスの噴霧口')), O('名簿の原本'), E(15, '港から離脱')], net: N5() },
-      { name: '検疫船', note: '沖に停めた検疫船に横づけする', field: [D(15, '検疫船に横づけ'), H(C(2, '船員に化けた私兵', 'swarm', 19)), _, O('名簿の原本'), E(17, '沖へ逃走')], net: N5() },
-    ],
-  },
-  camp3_verde: {
-    id: 'camp3_verde', rank: 2, district: 'upper', title: '前任の足跡：ハクロウの医療回線から転送記録を抜く', client: 'self', target: 'hakurou', campaign: 'cargo_verde',
-    nights: 1, payout: 3000, cred: 8, heat: 10, req: ['net', 'med'],
-    desc: 'ヴェルデの治験管理官が、名簿と照合できる治験記録を渡すという。条件は、ハクロウの医療回線に残る「転送記録」を抜いてくること。',
-    routes: [
-      { name: '医療回線', note: '治験の往診を装って端末に触れる', field: [M(15, '治験の往診を装う'), _, H(C(2, '回線警備', 'hacker', 19)), S(15, '転送室へ'), O('名簿の写し')], net: [I(15, '医療回線', 'trace'), _, I(15, '転送記録', 'data'), _, _] },
-      { name: '保管庫', note: 'ハクロウの記録保管庫に忍び込む', field: [S(15, 'ハクロウの保管庫'), H(T(15, '赤外線網')), C(2, '保管庫の警備', 'sniper', 17), O('名簿の写し'), E(15, '撤収')], net: [_, I(15, 'カメラ網', 'cam'), _, I(15, '転送記録', 'data'), _] },
-    ],
-  },
-  camp_names: {
-    id: 'camp_names', rank: 2, district: 'harbor', title: '名簿の生き残りを水没区から連れ出す', client: 'self', target: null, campaign: 'drowned',
-    nights: 1, payout: 2500, cred: 8, heat: 0, req: ['solo', 'med'],
-    desc: '名簿に載った男が、水没区の集落で生きている。三社の回収屋も、同じ男を探している。顔役が、連れ出せば礼をすると言った。',
-    routes: [
-      { name: '高架下', note: '浸水した高架下を車で抜ける', field: [D(15, '浸水した高架下'), S(15, '水没区の集落'), H(C(2, '回収屋', 'swarm', 18)), M(15, '生き残りの手当て'), O('生き残りを保護')], net: N5() },
-      { name: '浮き桟橋', note: '桟橋づたいに歩いて近づく', field: [S(15, '浮き桟橋'), H(T(15, '腐った足場')), C(2, '回収屋の見張り', 'sniper', 20), M(15, '生き残りの手当て'), O('生き残りを保護')], net: N5() },
-    ],
-  },
-  camp4_mitsukane: {
-    id: 'camp4_mitsukane', rank: 3, district: 'harbor', title: '調整役を海上基地に追う', client: 'self', target: 'hakurou', campaign: 'coordinator_mitsukane',
-    nights: 2, payout: 0, cred: 12, heat: 15, req: ['net', 'solo', 'driver', 'tech'],
-    desc: '調整役は、ハクロウ通信の海上中継基地に隠れている。ミツカネの警備艇が、基地の手前まで送ってくれる。',
-    routes: [
-      {
-        name: '海上基地', note: '警備艇から桟橋に乗り移る',
-        field: [D(17, 'ミツカネの警備艇で接近'), C(3, '基地の警備'), _, H(T(17, '水中センサー')), R('機械室'), GT(17, '居住区画'), H(C(4, '戦闘用義体兵')), K(17, '調整役を問い詰める'), O('証言'), E(17, '海へ逃走')],
-        net: [I(17, 'カメラ網', 'cam'), _, _, _, _, I(17, '居住区の施錠', 'door'), _, _, H(I(19, '警報系', 'alarm')), _],
-      },
-    ],
-  },
-  camp4_verde: {
-    id: 'camp4_verde', rank: 3, district: 'upper', title: '調整役を役員病棟に追う', client: 'self', target: 'mitsukane', campaign: 'coordinator_verde',
-    nights: 2, payout: 0, cred: 12, heat: 15, req: ['net', 'solo', 'driver', 'med'],
-    desc: '調整役は、ミツカネ重工の役員病棟に偽名で入院している。ヴェルデの主治医の名義で、病棟に入れる。',
-    routes: [
-      {
-        name: '役員病棟', note: '主治医の回診に紛れる',
-        field: [M(17, '主治医を装う'), C(3, '病棟の警備', 'sniper'), _, H(T(17, '生体認証床')), R('仮眠室'), S(19, '特別室へ忍び込む'), H(C(4, '戦闘用義体兵')), K(17, '調整役を問い詰める'), O('証言'), E(17, '救急車で逃走')],
-        net: [I(17, 'カルテ系', 'trace'), _, I(17, 'カメラ網', 'cam'), _, _, I(17, '病棟のカメラ網', 'cam'), _, _, H(I(19, '警報系', 'alarm')), _],
-      },
-    ],
-  },
-  camp5: {
-    id: 'camp5', rank: 3, district: 'harbor', title: '最後の夜：箱を持って朝を迎える', client: 'self', target: 'hakurou', campaign: 'dawn',
-    nights: 2, payout: 0, cred: 15, heat: 0, req: ['net', 'solo', 'driver'],
-    desc: '3社が箱を取り返しに来る。夜明けまで逃げ切れば、箱の行き先は自分で決められる。',
-    routes: [
-      {
-        name: '湾岸を抜ける', note: '逃げ続ける二晩',
-        field: [D(15, '包囲を抜ける'), C(3, 'ミツカネの追跡班'), _, H(C(3, 'ヴェルデの私兵')), R('廃ビル'), D(17, '高架'), H(T(17, 'ハクロウの監視網')), C(4, '最後の追っ手'), O('夜明け'), _],
-        net: [I(17, '追跡信号', 'trace'), I(17, 'カメラ網', 'cam'), _, _, _, _, I(19, '街頭監視網', 'alarm'), _, I(19, '箱の発信器', 'data'), _],
-      },
-    ],
-  },
-};
-
-/* メインの章。保存データは章のキーを持つ。番号（no）は表示だけに使う。
-   next：次の章のキー。{ ally: { 社: キー } } なら、手を組んだ社で決まる
-   choice：メイン依頼の成功後に出す分岐。選んだ option の next へ進み、ally を手を組んだ社として記録する
-   ally：この章が属する分岐（手を組んだ社）。allyBody：手を組んだ社ごとに本文の最後へ足す段落
-   advance：満たすと次の章へ進む条件（メイン依頼のない章）
-   job / unlock：この章のメイン依頼と、依頼盤に出る条件
-   heatPerNight：この章のあいだ毎夜、全企業のヒートに足す値（冷めなくなる）
-   ending：この章のメイン依頼の成功で結末の選択に入る
-   条件の種類は engine.js の REQS（successes・rank・netInterface・chapterNights） */
+/* 物語の章。ランでは箱の分岐（cipher）、各幕の大仕事の成功、夜明け（dawn）と結末に使う */
 const CHAPTERS = {
   handover: {
     no: 1, title: '第1章　引き継ぎ',
@@ -835,6 +848,7 @@ const ENDINGS = {
    role・gender・look：地図と依頼に出す姿（肖像と義体の描き方） */
 const RUN_BOSSES = {
   denki: {
+    resist: 'net',
     name: '電気屋', role: 'net', gender: 'm', look: ['jack2', 'coproc2'], hits: 2,
     who: '白蛇会の電脳屋。ハシバが手放した箱の鍵を買い取っている。',
     escort: [{ type: 'swarm', n: 1, name: '白蛇会の用心棒' }],
@@ -844,16 +858,18 @@ const RUN_BOSSES = {
     drop: { gear: 'denkiDeck' },
   },
   kaname: {
+    resist: 'fire',
     name: 'カナメ', role: 'solo', gender: 'f', look: ['optics2', 'arm2', 'reflex'], hits: 3,
     who: '三社のどれにも雇われる回収屋の頭。名簿に載った人を「回収」してきた。',
-    escort: [{ type: 'sniper', n: 1, name: '回収班の狙撃手' }, { type: 'swarm', n: 1, name: '回収班' }],
+    escort: [{ type: 'sniper', n: 1, name: '回収班の狙撃手' }],
     attacks: 2, seize: 2,
     tricks: ['ソロ型の傭兵ランナー。1ラウンドに2回撃つ', '2ラウンドで倒しきれないと、目標を1つ持ち去る'],
     ways: ['持ち去られても、次の逃走が追撃戦になる。追手を退けて運転で振り切れば取り返せる', '狙撃手は知覚DV18で先に見つける'],
     drop: { cyber: 'kanameEye' },
   },
   hound: {
-    name: '鋼の番犬', role: 'solo', gender: 'm', look: ['plating3', 'arm2', 'heart2'], hits: 4,
+    resist: 'stealth',
+    name: '鋼の番犬', role: 'solo', gender: 'm', look: ['plating3', 'arm2', 'heart2'], hits: 5,
     who: 'ミツカネの物流部長ナカガワの警備艇に乗る重装義体兵。',
     escort: [{ type: 'armored', n: 1, name: 'ミツカネの警備兵' }],
     armored: true, commander: { name: 'ナカガワ', spot: 18 },
@@ -861,19 +877,21 @@ const RUN_BOSSES = {
     ways: ['テックを連れていくか、徹甲ライフルを持たせる（1発で耐久2）', '知覚DV18でナカガワを見抜けば、先に落とせる'],
   },
   subject: {
-    name: '被検体', role: 'solo', gender: 'x', look: ['reflex3', 'heart2'], hits: 3,
+    resist: 'chrome',
+    name: '被検体', role: 'solo', gender: 'x', look: ['reflex3', 'heart2'], hits: 6,
     who: '名簿に載っていた一人。ヴェルデの治験管理官が、戦闘薬で動かしている。',
     escort: [{ type: 'swarm', n: 1, name: '検疫部隊' }],
-    drug: 2, talk: 18,
+    drug: 2, talk: 22,
     tricks: ['戦闘薬が毎ラウンド効いていて、攻撃+2'],
-    ways: ['説得DV18で正気に戻せば、撃たずに終わる。そのときは結末の一行が変わる', 'メドテックがいれば、倒れた仲間の死亡セーブに+1'],
+    ways: ['説得DV22で正気に戻せば、撃たずに終わる。そのときは結末の一行が変わる', 'メドテックがいれば、倒れた仲間の死亡セーブに+1'],
   },
   keeper: {
+    resist: 'endure',
     name: '保守主任', role: 'net', gender: 'f', look: ['jack2', 'tacai2'], hits: 3,
     who: '箱を開ける回線を貸してくれた本人。箱の中身を、回線ごと消しに来る。',
-    layers: [18, 19, 20], cut: 20,
-    tricks: ['ネットのボス。黒ICEが3重（DV18・19・20）。失敗するたびに逆流2d6（防具無視）'],
-    ways: ['腕のいいネットランナーと、ニューラル防壁（逆流を受けない）', 'ネットで抜けなければ、現場から回線を物理的に切る（電子DV20、3回まで）', '破った層は、挑み直しても戻らない'],
+    layers: [22, 23, 24], cut: 24,
+    tricks: ['ネットのボス。黒ICEが3重（DV22・23・24）。失敗するたびに逆流2d6（防具無視）'],
+    ways: ['腕のいいネットランナーと、ニューラル防壁（逆流を受けない）', 'ネットで抜けなければ、現場から回線を物理的に切る（電子DV24、3回まで）', '破った層は、挑み直しても戻らない'],
   },
 };
 
@@ -894,7 +912,7 @@ const RUN_JOBS = {
     nights: 1, payout: 3000, cred: 0, heat: 10, req: ['solo', 'driver'],
     desc: 'ミツカネの警備部が、港の夜警を一晩だけ外してくれる。名簿の原本はヴェルデの検疫倉庫にある。同じ夜、回収屋のカナメも名簿を狙っている。',
     routes: [
-      { name: '検疫倉庫', note: '正面から押し入る', field: [S(15, '検疫倉庫'), C(2, 'ヴェルデの検疫警備', 'armored', 17), O('名簿の原本'), BS('kaname', '回収屋の待ち伏せ'), E(15, '港から離脱')], net: N5() },
+      { name: '検疫倉庫', note: '正面から押し入る', field: [S(15, '検疫倉庫'), C(2, 'ヴェルデの検疫警備', 'standard', 17), O('名簿の原本'), BS('kaname', '回収屋の待ち伏せ'), E(15, '港から離脱')], net: N5() },
       { name: '検疫船', note: '沖に停めた検疫船に横づけする', field: [D(15, '検疫船に横づけ'), H(C(2, '船員に化けた私兵', 'swarm', 19)), O('名簿の原本'), BS('kaname', '回収屋の待ち伏せ'), E(17, '沖へ逃走')], net: N5() },
     ],
   },

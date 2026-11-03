@@ -10,9 +10,9 @@ function game(seed=1) {
   math.random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   const c=vm.createContext({console,Math:math,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)}});
   const run=s=>vm.runInContext(s,c);
-  for(const f of ['data','engine','world','run'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
+  for(const f of ['data','engine','world','run','meta'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
   // 歩合は毎夜まれに引き抜かれるので、隊は専属にしておく
-  run('newGame();G.storyQueue=[];G.news=2;G.conditions={};for(const r of G.runners){r.contract="exclusive";r.stipend=100;}');
+  run('newGame(undefined,{first:true});G.storyQueue=[];G.news=2;G.conditions={};');
   return {run,storage};
 }
 // 依頼を判定なしで決着させる（endNight の精算をそのまま通す）
@@ -20,31 +20,50 @@ function game(seed=1) {
 const settleAs=(ok,nights=1)=>`for(const ms of G.missions){ms.result={success:${ok},reason:${ok}?'':'試験で失敗',members:teamIds(ms.team),heat:{},lazarus:[],rewardMult:1,log:[],endNight:${nights},xp:{},credit:{}};}`;
 const send=`(()=>{const j=G.board[0];const t={field:[G.runners[0].id],support:[],net:[]};for(const r of G.runners.slice(1))(r.role==='net'?t.net:t.support).length<(r.role==='net'?1:2)&&(r.role==='net'?t.net:t.support).push(r.id);j.req=[];G.missions.push({uid:j.uid,job:j,routeIdx:0,team:t,start:G.night,result:null});G.board=[];for(const id of teamIds(t))getR(id).status='mission';})()`;
 
-test('a new run starts at act 1 night 1 with no debt and a map of 3·3·2 destinations then the big job',()=>{
+test('a new run starts at act 1 night 1 with no debt and a ten-night map that ends in the big job',()=>{
   const {run}=game();
-  assert.equal(run('G.run.act===1 && G.run.slot===1 && G.run.tonight===null && G.loans.length===0 && G.money===3000'),true);
-  assert.equal(run('[1,2,3,4].map(s=>G.run.map[s].length).join()'),'3,3,2,1');
-  assert.equal(run('G.run.map[4][0].type'),'boss');
-  assert.equal(run('upkeepItems().filter(x=>!x[0].endsWith("の手当")).map(x=>x[0]).join()'),'隠れ家代'); // 借金も設備の維持費もない
+  assert.equal(run('G.run.act===1 && G.run.slot===1 && G.run.tonight===null && G.money===3000'),true);
+  assert.equal(run('Run.NIGHTS===10 && Run.BOSS_SLOT===10 && G.run.map[10].length===1 && G.run.map[10][0].type==="boss"'),true);
+  assert.equal(run('G.run.map[1].length===3 && G.run.map[9].length===2 && [2,3,4,5,6,7,8].every(s=>G.run.map[s].length>=2&&G.run.map[s].length<=4)'),true);
+  assert.equal(run('upkeepItems().map(x=>x[0]).join()'),'隠れ家代'); // 借金も設備の維持費もない
 });
 
-test('every generated act honours the per-night rules',()=>{
+test('every generated act honours the per-night rules and every location is connected',()=>{
   for (let seed=1; seed<=150; seed++) {
     const {run}=game(seed);
     for (const a of [1,2,3]) {
       const m=JSON.parse(run(`JSON.stringify(Run.genMap(${a}))`));
       const has=(s,ts)=>m[s].some(n=>ts.includes(n.type));
-      for (const s of [1,2,3]) assert.equal(new Set(m[s].map(n=>n.type)).size,m[s].length,`seed ${seed} act ${a} night ${s}: duplicate destination`);
-      if (a===1) assert.equal(has(1,['hard'])||has(2,['hard'])||has(3,['hard']),false,`seed ${seed}: no dangerous jobs in act 1`);
+      for (let s=1; s<=9; s++) {
+        assert.ok(has(s,['job','hard']),`seed ${seed} act ${a} night ${s}: a job every night`);
+        for (const t of ['doc','shop','alley','hideout','event','hard']) assert.ok(m[s].filter(n=>n.type===t).length<=1,`seed ${seed} act ${a} night ${s}: two ${t}`);
+        // どの行き先にも出る線があり、次の夜のどの行き先にも入る線がある
+        assert.ok(m[s].every(n=>n.to&&n.to.length&&n.to.every(j=>m[s+1][j])),`seed ${seed} act ${a} night ${s}: dead end`);
+        assert.ok(m[s+1].every((_,j)=>m[s].some(n=>n.to.includes(j))),`seed ${seed} act ${a} night ${s+1}: unreachable`);
+      }
+      if (a===1) assert.equal([1,2,3,4,5,6,7,8,9].some(s=>has(s,['hard'])),false,`seed ${seed}: no dangerous jobs in act 1`);
       if (a===1) assert.equal(has(1,['alley']),true,`seed ${seed}: act 1 offers the alley on night 1`);
-      assert.equal(has(1,['job']),true,`seed ${seed} act ${a}: night 1 has a job`);
-      assert.equal(has(2,['doc','shop']),true,`seed ${seed} act ${a}: night 2 has the doctor or the dealer`);
-      assert.equal(has(3,['hideout','doc']),true,`seed ${seed} act ${a}: night 3 lets you recover`);
-      // 3夜目の依頼は1夜で終わる（大仕事に食い込まない）
-      assert.equal(run(`${JSON.stringify(m[3])}.filter(n=>n.tpl).every(n=>JOBS.find(t=>t.id===n.tpl).nights===1)`),true);
-      assert.equal(run(`${JSON.stringify([...m[1],...m[2],...m[3]])}.filter(n=>n.tpl).every(n=>JOBS.find(t=>t.id===n.tpl).rank===(n.type==='hard'?Math.min(${a}+1,3):${a}))`),true);
+      assert.ok(has(4,['hideout','doc']) && has(8,['hideout','doc']),`seed ${seed} act ${a}: nights 4 and 8 let you recover`);
+      // 9夜目の依頼は1夜で終わる（大仕事に食い込まない）
+      assert.equal(run(`${JSON.stringify(m[9])}.filter(n=>n.tpl).every(n=>JOBS.find(t=>t.id===n.tpl).nights===1)`),true);
+      const all=[1,2,3,4,5,6,7,8,9].flatMap(s=>m[s]);
+      assert.equal(run(`${JSON.stringify(all)}.filter(n=>n.tpl).every(n=>JOBS.find(t=>t.id===n.tpl).rank===(n.type==='hard'?Math.min(${a}+1,3):${a}))`),true);
     }
   }
+});
+
+test('only locations connected to last night’s choice can be chosen; a two-night job follows the lines two steps',()=>{
+  const {run}=game(7);
+  run(`G.run.map[1]=[{type:'hideout',to:[0]},{type:'alley',to:[1]}]; G.run.map[2]=[{type:'event',to:[1]},{type:'doc',to:[0]}]; G.run.map[3]=[{type:'shop',to:[0]},{type:'event',to:[0]}];`);
+  assert.equal(run('Run.options().length'),2);
+  run('Run.choose(1); endNight();'); // 路地裏から
+  assert.equal(run('Run.options().map(n=>n.type).join()'),'doc');
+  assert.equal(run('Run.reachable(3).join()'),'0'); // 闇医者の先は古物屋だけ
+  run('Run.choose(0); endNight();');
+  assert.equal(run('Run.options().map(n=>n.type).join()'),'shop');
+  // 2夜依頼で1夜飛ぶと、2つ先の夜まで線をたどる
+  run(`G.run.pos={slot:1,i:0};`);
+  assert.equal(run('Run.reachable(3).join()'),'1');
 });
 
 test('choosing a destination is final and the night cannot end before one is chosen',()=>{
@@ -68,7 +87,7 @@ test('the hideout restores HP and +5 humanity; the alley lists missing roles fir
   run('G.run.map[1]=[{type:"hideout"},{type:"alley"}]; const r=G.runners[0]; r.hp=3; r.humanity=20; Run.choose(0);');
   assert.equal(run('r.hp===maxHp(r) && r.humanity===25'),true);
   run('G.run.tonight=null; G.run.history.pop(); Run.choose(1);');
-  assert.equal(run('G.scouts.length===3 && G.scouts.every(s=>!["solo","driver"].includes(s.role))'),true);
+  assert.equal(run('G.scouts.length===3 && G.scouts.slice(0,2).every(s=>["tech","med"].includes(s.role))'),true); // 隊はソロ・ドライバー・ネットランナー
 });
 
 test('events charge only when chosen and refuse when money is short',()=>{
@@ -90,12 +109,12 @@ test('a two-night job uses up the next night, which cannot be chosen',()=>{
   assert.equal(run('G.run.slot===3 && G.run.tonight===null && G.missions.length===0'),true);
 });
 
-test('night 4 is the big job; one failure allows a retry that does not count, a second ends the run',()=>{
+test('night 10 is the big job; one failure allows a retry that does not count, a second ends the run',()=>{
   const {run,storage}=game();
-  run('G.run.slot=3; Run.choose(0); endNight();');
-  assert.equal(run('G.run.slot===4 && G.run.tonight.type==="boss" && G.board[0].runBoss && G.board[0].rank===1'),true);
+  run('G.run.slot=Run.BOSS_SLOT-1; Run.choose(0); endNight();');
+  assert.equal(run('G.run.slot===Run.BOSS_SLOT && G.run.tonight.type==="boss" && G.board[0].runBoss && G.board[0].rank===1'),true);
   run('endNight();'); // 送り出さずに夜を明かすと失敗
-  assert.equal(run('!G.ended && G.run.retried && G.run.slot===4 && G.board.length===1 && G.board[0].runBoss'),true);
+  assert.equal(run('!G.ended && G.run.retried && G.run.slot===Run.BOSS_SLOT && G.board.length===1 && G.board[0].runBoss'),true);
   run('endNight();');
   assert.equal(run('G.ended.type'),'boss');
   assert.equal(JSON.parse(storage.get('fixers-cut-meta-v1')).runs,1);
@@ -104,21 +123,21 @@ test('night 4 is the big job; one failure allows a retry that does not count, a 
 
 test('winning the act-1 big job asks for an ally, then act 2 brings that ally’s big job',()=>{
   const {run}=game();
-  run(`G.run.slot=4; G.run.tonight={type:'boss'}; G.board=[]; G.board.push(addJob(Object.assign(clone(CAMPAIGN_JOBS.camp2),{rank:1,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true)}; var out=endNight();`);
+  run(`G.run.slot=Run.BOSS_SLOT; G.run.tonight={type:'boss'}; G.board=[]; G.board.push(addJob(Object.assign(clone(RUN_JOBS.run_denki),{rank:1,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true)}; var out=endNight();`);
   assert.equal(run('G.awaitChoice==="cipher" && G.run.act===2 && G.run.slot===1 && G.rank===2'),true);
   assert.equal(run('out.events.some(e=>e.text.includes("第2幕"))'),true);
   run('chooseBranch(1);');
-  assert.equal(run('G.flags.ally==="verde" && Run.nodeInfo(G.run.map[4][0]).title===RUN_JOBS.run_cargo_verde.title && Run.nodeInfo(G.run.map[4][0]).boss==="kaname"'),true);
+  assert.equal(run('G.flags.ally==="verde" && Run.nodeInfo(G.run.map[Run.BOSS_SLOT][0]).title===RUN_JOBS.run_cargo_verde.title && Run.nodeInfo(G.run.map[Run.BOSS_SLOT][0]).boss==="kaname"'),true);
 });
 
 test('act 3 opens on the ally’s coordinator chapter; clearing it ends the run as a clear',()=>{
   const {run,storage}=game();
-  run(`G.flags.ally='hakurou'; G.run.act=2; G.rank=2; G.run.slot=4; G.run.tonight={type:'boss'}; G.board.push(addJob(Object.assign(clone(CAMPAIGN_JOBS.camp3),{rank:2,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true,2)}; var out=endNight();`);
+  run(`G.flags.ally='hakurou'; G.run.act=2; G.rank=2; G.run.slot=Run.BOSS_SLOT; G.run.tonight={type:'boss'}; G.board.push(addJob(Object.assign(clone(RUN_JOBS.run_cargo_hakurou),{rank:2,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true,2)}; var out=endNight();`);
   // camp3 は2夜。2夜目は幕の夜数に数えない
-  assert.equal(run('G.run.act===2 && G.run.slot===4 && G.run.tonight.type==="cont"'),true);
+  assert.equal(run('G.run.act===2 && G.run.slot===Run.BOSS_SLOT && G.run.tonight.type==="cont"'),true);
   run('out=endNight();');
   assert.equal(run('G.run.act===3 && G.chapter==="coordinator_hakurou" && out.story.includes("coordinator_hakurou")'),true);
-  run(`G.run.slot=4; G.run.tonight={type:'boss'}; G.board.push(addJob(Object.assign(clone(CAMPAIGN_JOBS.camp5),{rank:3,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true,2)}; endNight(); endNight();`);
+  run(`G.run.slot=Run.BOSS_SLOT; G.run.tonight={type:'boss'}; G.board.push(addJob(Object.assign(clone(RUN_JOBS.run_box_hakurou),{rank:3,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true,2)}; endNight(); endNight();`);
   assert.equal(run('G.awaitEnding===true && G.run.cleared'),true);
   run(`chooseEnding('publish');`);
   const meta=JSON.parse(storage.get('fixers-cut-meta-v1'));
@@ -132,12 +151,39 @@ test('losing every runner ends the run as a wipe',()=>{
   assert.equal(run('G.ended.type'),'wipe');
 });
 
-test('run rules: no cyberware loans, one-night therapy, faster skill growth, heat 80 adds an enemy',()=>{
+test('run rules: one-night therapy, faster skill growth, heat 80 adds an enemy',()=>{
   const {run}=game();
-  run('const r=G.runners[0]; r.contract="exclusive";');
-  assert.equal(run('buyCyber(r,"reflex","loan")'),'ラン中はローンを組めません');
-  assert.equal(run('World.therapyNights()'),1);
+  run('const r=G.runners[0];');
+  assert.equal(run('THERAPY_NIGHTS'),1);
   assert.equal(run('xpNeed(3)'),4);
   run(`G.heat.verde=85; const j=addJob(clone(JOBS.find(t=>t.target==='verde'&&t.rank===1)),true); const ctx=missionContext(j,0,snapTeam({field:[r.id],support:[],net:[]}),true);`);
   assert.equal(run('ctx.mods.extraEnemy'),1);
+});
+
+test('job routes vary each time but keep the ICE layout, the goals and the required roles; some jobs get a third route',()=>{
+  let third=0, assault=0, backway=0;
+  for (let seed=1; seed<=120; seed++) {
+    const {run}=game(seed);
+    for (const tpl of ['r1_watch','r2_sample','r3_relay']) {
+      const out=JSON.parse(run(`(()=>{const t=JOBS.find(x=>x.id==='${tpl}'); G.run.map[1]=[{type:'job',tpl:'${tpl}'}]; G.run.tonight=null; G.run.pos=null; G.board=[]; Run.choose(0); const j=G.board[0];
+        const goals=(rt)=>rt.field.filter(p=>p&&p.t==='goal').length+rt.net.filter(p=>p&&p.fx==='data').length;
+        const ice=(rt)=>rt.net.map(p=>p?p.fx:'-').join();
+        return JSON.stringify({n:j.routes.length, same:j.routes.slice(0,t.routes.length).every((rt,i)=>ice(rt)===ice(t.routes[i])&&goals(rt)===goals(t.routes[i])&&rt.field.length===t.routes[i].field.length),
+          req:j.req.join()===t.req.join(), extra:j.routes[t.routes.length]?j.routes[t.routes.length].gen:null, extraGoals:j.routes[t.routes.length]?goals(j.routes[t.routes.length]):null, baseGoals:goals(t.routes[0])});})()`));
+      assert.ok(out.same && out.req, `seed ${seed} ${tpl}`);
+      if (out.extra) { third++; if (out.extra==='assault') assault++; else backway++; assert.equal(out.extraGoals,out.baseGoals); }
+    }
+  }
+  assert.ok(third>60 && third<200,`third routes ${third}/360`);
+  assert.ok(assault>0 && backway>0);
+});
+
+test('route character counts stealth, fights and net; the route that fits the crew’s main type is recommended',()=>{
+  const {run}=game();
+  assert.equal(run(`JSON.stringify(Run.routeBars({field:[S(15,'a'),C(4,'b'),GT(15,'c'),O('d'),E(15,'e')],net:[I(15,'x','cam'),_,I(15,'y','door'),_,_]}))`),JSON.stringify({stealth:1,combat:2,net:2}));
+  assert.equal(run(`Run.routeBars({field:[H(S(15,'a')),_],net:[_,_]},false).stealth`),0); // 見えない段取りは数えない
+  run(`var j={intel:true,routes:[{field:[S(15,'a'),S(15,'b'),O('c')],net:[_,_,_]},{field:[C(3,'a'),C(3,'b'),O('c')],net:[_,_,_]}]}; var r=G.runners[0]; r.gear={weapon:'smg'}; r.cyber=['optics'];`);
+  assert.equal(run('Run.recommendRoute(j,[r.id])'),1); // 火力は交戦の多い道
+  run(`r.gear={body:'poncho'}; r.cyber=['chameleon','ears'];`);
+  assert.equal(run('Run.recommendRoute(j,[r.id])'),0); // 隠密は隠密の多い道
 });

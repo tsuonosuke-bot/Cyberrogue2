@@ -9,8 +9,8 @@ function game(seed=1) {
   math.random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   const c=vm.createContext({console,Math:math,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)}});
   const run=s=>vm.runInContext(s,c);
-  for(const f of ['data','engine','world','run'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
-  run('newGame();G.storyQueue=[];for(const r of G.runners){r.contract="exclusive";r.stipend=100;}');
+  for(const f of ['data','engine','world','run','meta'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
+  run('newGame(undefined,{first:true});G.storyQueue=[];');
   return run;
 }
 const ONE_NIGHT=`{title:'試験',nights:1}`;
@@ -91,35 +91,23 @@ test('upgrades of installed lines and missing roles are favoured',()=>{
   assert.ok(missing>0);
 });
 
-test('taking each kind of reward applies it once; skipping pays 500cr',()=>{
+test('taking each kind of reward (implant, gear, connection, cr, runner) applies it once; skipping pays 500cr',()=>{
   const run=game();
   run(`var r=G.runners[0]; var m=G.money;
     G.pending=[{run:true,title:'t',opts:[{kind:'cyber',id:'optics'},{kind:'gear',id:'smg'},{kind:'cr',amount:800}]}];`);
   assert.equal(run('Run.takeReward(0,G.runners[1].id)'),null); // ドライバーにも鷹の目は合う
   assert.equal(run('G.runners[1].cyber.includes("optics") && G.run.taken.includes("optics") && G.pending.length===0'),true);
-  run(`G.pending=[{run:true,title:'t',opts:[{kind:'cyber',id:'jack'},{kind:'gear',id:'smg'},{kind:'intel'}]}];`);
+  run(`G.pending=[{run:true,title:'t',opts:[{kind:'cyber',id:'jack'},{kind:'gear',id:'smg'},{kind:'cone',id:'scavenger'}]}];`);
   assert.equal(run('Run.takeReward(0,r.id)'),'ソロには合いません');
   assert.equal(run('Run.takeReward(1)'),'持たせる人を選んでください');
   assert.equal(run('Run.takeReward(1,r.id)'),null);
   assert.equal(run('r.gear.weapon==="smg" && G.money===m'),true);
-  run(`G.pending=[{run:true,title:'t',opts:[{kind:'intel'}]}];`);
-  assert.equal(run('Run.takeReward(0)===null && G.vouchers.intel===2'),true);
+  run(`G.pending=[{run:true,title:'t',opts:[{kind:'cone',id:'scavenger'}]}];`);
+  assert.equal(run('Run.takeReward(0)===null && G.run.cones.join()==="scavenger" && cone("scavenger")'),true);
   run(`G.pending=[{run:true,title:'t',opts:[{kind:'cr',amount:800}]}];`);
   assert.equal(run('Run.takeReward(-1)===null && G.money===m+500'),true);
   run(`var nr=makeRunner('net'); G.pending=[{run:true,title:'t',opts:[{kind:'runner',runner:nr}]}];`);
-  assert.equal(run('Run.takeReward(0)===null && G.runners.includes(nr) && nr.contract==="exclusive" && nr.stipend===0'),true);
-});
-
-test('runs have no contracts: one hire button, no stipend, the whole share goes to the fixer',()=>{
-  const run=game();
-  run(`G.scouts=[makeRunner('tech')]; var s=G.scouts[0];`);
-  assert.equal(run('hire(0,"commission")'),null); // ラン中は契約の種類を問わない
-  assert.equal(run('s.contract==="exclusive" && s.stipend===0 && G.runners.includes(s)'),true);
-  assert.equal(run('upkeepItems().some(([k])=>k.includes(s.name))'),false);
-  run(`var r=G.runners[0]; r.loyalty=0; G.money=5000; G.run.map[1]=[{type:'hideout'}]; Run.choose(0); endNight();`);
-  assert.equal(run('G.runners.includes(r)'),true); // 忠誠が低くても持ち逃げしない
-  run(`var g=JSON.parse(JSON.stringify(G)); g.runners[0].contract='commission'; g.runners[0].stipend=300; migrate(g);`);
-  assert.equal(run('g.runners[0].contract==="exclusive" && g.runners[0].stipend===0'),true);
+  assert.equal(run('Run.takeReward(0)===null && G.runners.includes(nr) && true'),true);
 });
 
 test('a taken item never comes back in the same run; untaken ones can',()=>{
@@ -145,7 +133,7 @@ test('walk-ins: two candidates a night, missing roles first, paid by act, gone t
   const run=game();
   run('G.runners=G.runners.slice(0,2); var have=G.runners.map(r=>r.role); var w=Run.walkins();');
   assert.equal(run('w.length'),2);
-  assert.equal(run('w.every(r=>!have.includes(r.role) && r.contract==="exclusive" && r.stipend===0)'),true);
+  assert.equal(run('w.every(r=>!have.includes(r.role))'),true);
   assert.equal(run('Run.walkins()===w'),true); // 同じ夜は同じ顔ぶれ
   run('G.money=1000;');
   assert.equal(run('Run.hireWalkin(0)'),'契約金が足りません');
@@ -182,4 +170,30 @@ test('the alley offers more traits than the street at large',()=>{
     walk+=run('Run.walkins().filter(r=>r.trait).length')*1.5; // 顔見せは2人、路地裏は3人
   }
   assert.ok(alley>walk*1.4,`alley ${alley} vs walk-ins ${walk}`);
+});
+
+test('a full crew of four swaps someone out to hire; the dropped runner and their implants are gone',()=>{
+  const run=game();
+  run('G.runners=G.runners.slice(0,3); G.runners.push(makeRunner("med")); G.money=9000; var w=Run.walkins(); var x=w[0]; var out=G.runners[1];');
+  assert.equal(run('crewSize()'),4);
+  assert.match(run('Run.hireWalkin(0)'),/入れ替える人を選んで/);
+  assert.equal(run('Run.hireWalkin(0,out.id)'),null);
+  assert.equal(run('crewSize()===4 && G.runners.includes(x) && !G.runners.includes(out) && !G.run.refill'),true);
+});
+
+test('a temporary hire fills a missing required role for one job, is paid afterwards, and leaves',()=>{
+  const run=game();
+  run(`G.runners=G.runners.filter(r=>r.role!=='net'); G.run.map[1]=[{type:'job',tpl:'r1_watch'}]; Run.choose(0); var j=G.board[0]; j.req=['net']; G.money=100;`);
+  assert.equal(run('Run.tempFee(j)'),750);
+  run('var t=Run.tempHire(j.uid,"net");');
+  assert.equal(run('t.temp.uid===j.uid && crewSize()===2 && G.runners.length===3'),true);
+  assert.match(run('Run.tempHire(j.uid,"net")'),/もう隊にいます/);
+  run(`G.missions.push({uid:j.uid,job:j,routeIdx:0,team:{field:[G.runners[0].id],support:[],net:[t.id]},start:1,result:{success:true,reason:'',members:[{id:G.runners[0].id},{id:t.id}],heat:{},lazarus:[],rewardMult:1,log:[],endNight:1,xp:{},credit:{}}});
+    G.board=[]; t.status='mission'; G.runners[0].status='mission'; var out=endNight();`);
+  assert.equal(run('!G.runners.includes(t) && out.settle[0].lines.some(([k,v])=>k.includes("臨時雇い")&&v===-750)'),true);
+  // 大仕事では各幕1回だけ無料
+  run('var boss={uid:999,runBoss:true,req:["net"]}; G.board=[boss];');
+  assert.equal(run('Run.tempFee(boss)'),0);
+  run('Run.tempHire(999,"net");');
+  assert.equal(run('Run.tempFee(boss)'),750);
 });

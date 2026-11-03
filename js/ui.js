@@ -80,37 +80,19 @@ function runnerCard(r, mode, idx) {
   const xpOf = (k) => (r.skills[k] || 0) >= SKILL_CAP ? 1 : ((r.xp || {})[k] || 0) / xpNeed(r.skills[k] || 0, r);
   const skills = SKILLS.filter((k) => skill(r, k) > 0).map((k) => `<span title="次の上昇まで ${Math.round(xpOf(k) * 100)}%">${k}<b class="num">${skill(r, k)}</b>${mode === 'scout' ? '' : `<i class="xp"><i style="width:${Math.round(xpOf(k) * 100)}%"></i></i>`}</span>`).join('');
   const gear = Object.values(r.gear || {}).filter((id) => GEAR[id]);
-  let contract = '', actions = '';
-  if (mode === 'roster' && G.run) {
+  let actions = '';
+  if (mode === 'roster') {
     const busy = r.status === 'mission';
     actions = `<div class="actions">${UI.ask === 'fire' + r.id
       ? `<button class="danger" data-act="fire" data-r="${r.id}">本当に隊から外す</button>`
       : `<button data-act="askfire" data-r="${r.id}" ${busy ? 'disabled' : ''}>隊から外す</button>`}</div>`;
-  } else if (mode === 'scout' && G.run) {
-    actions = `<div class="actions"><button class="primary" data-act="hire" data-v="${idx}">雇う</button></div>`;
-  } else if (mode === 'walkin') {
-    const fee = Run.walkinFee(), full = G.runners.length >= ROSTER_MAX;
-    actions = `<div class="actions"><button class="primary" data-act="walkin" data-v="${idx}" ${full || fee > G.money ? 'disabled' : ''}>${full ? '隊がいっぱい' : `雇う（契約金 ${fmt(fee)}cr）`}</button></div>`;
-  } else if (mode === 'roster') {
-    contract = r.contract === 'exclusive'
-      ? `<div class="contract"><span class="chip b">専属</span> 手当 <b class="num">${r.stipend}cr</b>/夜 ・ 忠誠 <b class="num">${r.loyalty}</b>${r.loyalty < 25 ? ' <span class="pink">離れそう</span>' : ''}</div>`
-      : `<div class="contract"><span class="chip o">歩合</span> 分け前の希望 <b class="num">${fmt(demand(r))}cr</b>以上 ・ 手持ち <b class="num">${fmt(r.wallet)}cr</b>${r.discontent ? ` ・ <span class="pink">不満 ${r.discontent}</span>` : ''}</div>`;
-    const busy = r.status === 'mission';
-    const toggle = r.contract === 'exclusive'
-      ? `<button data-act="contract" data-r="${r.id}" data-v="commission" ${busy ? 'disabled' : ''}>歩合に戻す</button>`
-      : `<button data-act="contract" data-r="${r.id}" data-v="exclusive" ${busy ? 'disabled' : ''}>専属にする（${stipendFor(r)}cr/夜）</button>`;
-    const fire = UI.ask === 'fire' + r.id
-      ? `<button class="danger" data-act="fire" data-r="${r.id}">本当に契約を切る</button>`
-      : `<button data-act="askfire" data-r="${r.id}" ${busy ? 'disabled' : ''}>契約を切る</button>`;
-    actions = `<div class="actions">${toggle}${fire}</div>`;
-  } else if (mode === 'scout') {
-    const st = stipendFor(r);
-    const prefNote = { any: 'どちらの契約でもいい', commission: '歩合でしか組まない', exclusive: '専属でなければ組まない' }[r.pref];
-    contract = `<div class="contract">${prefNote} ・ 専属なら手当 <b class="num">${st}cr</b>/夜 ・ 歩合なら分け前 <b class="num">${fmt(demand(r))}cr</b>以上を希望</div>`;
-    actions = `<div class="actions">
-      <button data-act="hire" data-v="${idx}" data-c="commission" ${r.pref === 'exclusive' ? 'disabled' : ''}>歩合で雇う</button>
-      <button class="primary" data-act="hire" data-v="${idx}" data-c="exclusive" ${r.pref === 'commission' ? 'disabled' : ''}>専属で雇う</button>
-    </div>`;
+  } else if (mode === 'scout' || mode === 'walkin') {
+    const act = mode === 'scout' ? 'hire' : 'walkin', fee = mode === 'walkin' ? Run.walkinFee() : 0;
+    const poor = fee > G.money, price = fee ? `（契約金 ${fmt(fee)}cr）` : '';
+    // 隊がいっぱいなら、誰と入れ替えるかをその場で選ぶ。外した人の義体と装備は戻らない
+    actions = crewSize() < ROSTER_MAX
+      ? `<div class="actions"><button class="primary" data-act="${act}" data-v="${idx}" ${poor ? 'disabled' : ''}>雇う${price}</button></div>`
+      : `<div class="actions swap"><span class="dim">隊は${ROSTER_MAX}人まで。入れ替える人${price}：</span>${G.runners.filter((x) => !x.temp).map((x) => `<button data-act="${act}" data-v="${idx}" data-drop="${x.id}" ${poor || x.status === 'mission' ? 'disabled' : ''}>${esc(x.name)}<small class="dim"> ${ROLES[x.role].tag}</small></button>`).join('')}</div>`;
   }
   return `<article class="runner ${mode} ${r.status === 'mission' ? 'away' : ''} ${r.trait ? 'r-' + TRAITS[r.trait].rarity : ''}">
     <header>
@@ -126,8 +108,7 @@ function runnerCard(r, mode, idx) {
     <div class="skills">${skills}</div>
     ${r.cyber.length ? `<div class="cy"><span class="label">義体</span> ${r.cyber.map((c) => CYBER[c].name).join('、')}</div>` : ''}
     ${gear.length ? `<div class="cy"><span class="label">装備</span> ${gear.map((id) => GEAR[id].name).join('、')}</div>` : ''}
-    ${mode === 'roster' ? perkLine(r) + World.perkHtml(r) : ''}
-    ${contract}
+    ${mode === 'roster' ? perkLine(r) : ''}
     ${actions}
   </article>`;
 }
@@ -147,9 +128,9 @@ function hud() {
   return `<header class="hud"><div class="hud-in">
     <div class="brand"><span class="logo">FIXER'S CUT</span><span class="label">${A.name} ・ ${A.place}</span></div>
     ${Comfort.soundButton()}${hintButton()}${helpButton()}<dl class="hud-stats">
-      <div><dt class="label">夜</dt><dd class="num">${run.slot}/4 <span class="dim">通算${G.night}</span></dd></div>
+      <div><dt class="label">夜</dt><dd class="num">${run.slot}/${Run.NIGHTS} <span class="dim">通算${G.night}</span></dd></div>
       <div class="${G.money < 0 ? 'neg' : ''}"><dt class="label">所持金</dt><dd class="num">${cr(G.money)}${G.negStreak ? ` <span class="chip p">赤字 ${G.negStreak}/3</span>` : ''}</dd></div>
-      <div><dt class="label">隊</dt><dd class="num">${G.runners.length}人</dd></div>
+      <div><dt class="label">隊</dt><dd class="num">${crewSize()}/${ROSTER_MAX}人</dd></div>
     </dl>
     <div class="heat" aria-label="企業ごとのヒート">${CORPS.map((c) => `<div class="hb ${G.heat[c] >= 80 ? 'hot' : ''}"><span>${logo(c)}${CLIENTS[c].short}</span><div class="ht"><i style="width:${G.heat[c]}%"></i></div><b class="num">${G.heat[c]}</b></div>`).join('')}</div>
   </div>
@@ -202,7 +183,7 @@ function bossBox(job) {
   const dropName = B.drop ? (B.drop.cyber ? CYBER[B.drop.cyber] : GEAR[B.drop.gear]).name : '';
   return `<section class="bossbox">${bossPortrait(job.boss, 'lg')}<div class="bossin">
     <div class="label">BOSS</div><h3>${B.name}</h3><p>${B.who}</p>
-    <dl class="facts"><div><dt>耐久</dt><dd class="num">${left}/${B.hits}</dd></div><div><dt>${B.layers ? 'ネット' : '護衛'}</dt><dd>${bossEscorts(B)}</dd></div></dl>
+    <dl class="facts"><div><dt>耐久</dt><dd class="num">${left}/${B.hits}</dd></div><div><dt>${B.layers ? 'ネット' : '護衛'}</dt><dd>${bossEscorts(B)}</dd></div>${B.resist ? `<div><dt>耐性</dt><dd class="pink">${TYPES[B.resist].name}の型が効かない</dd></div>` : ''}</dl>
     ${left < B.hits ? '<p class="pink">前の挑戦で削った耐久は戻っていない（護衛は戻っている）</p>' : ''}
     ${job.intel ? `<h4>仕掛け</h4><ul>${B.tricks.map((t) => `<li>${t}</li>`).join('')}</ul><h4>攻略の道</h4><ul class="blue">${B.ways.map((t) => `<li>${t}</li>`).join('')}</ul>`
       : '<p class="dim">情報を買うと、仕掛けと攻略の道が見える。</p>'}
@@ -210,22 +191,58 @@ function bossBox(job) {
   </div></section>`;
 }
 
-function mapNode(n, i, slot) {
+/* 今夜選べる行き先（詳しい版）。i は Run.options() の中の番号 */
+function mapNode(n, i) {
   const run = G.run, info = Run.nodeInfo(n);
-  const now = slot === run.slot && !run.tonight;
-  const picked = run.picked[slot] === i || (slot === run.slot && run.tonight && run.tonight.type === n.type && n.type === 'boss');
-  const past = slot < run.slot && !picked;
-  const tags = [n.type === 'hard' ? '<span class="chip p">危険</span>' : '', n.type === 'boss' && run.retried && slot === run.slot ? '<span class="chip p">再挑戦</span>' : '',
+  const tags = [n.type === 'hard' ? '<span class="chip p">危険</span>' : '', n.type === 'boss' && run.retried ? '<span class="chip p">再挑戦</span>' : '',
     info.until ? `<span class="chip p">あと${info.until - G.night + 1}夜</span>` : ''].join('');
-  return `<button class="node n-${n.type}${picked ? ' picked' : ''}${past ? ' past' : ''}" data-act="go" data-v="${i}" ${now ? '' : 'disabled'}>
+  return `<button class="node n-${n.type}" data-act="go" data-v="${i}">
     <span class="mk" aria-hidden="true">${info.mark}</span>
-    <span class="nb"><b>${info.name}</b>${tags}${info.boss ? `<span class="nboss">${bossPortrait(info.boss, 'sm')}<span><b class="pink">${RUN_BOSSES[info.boss].name}</b><small class="num dim"> 耐久${info.bossLeft ?? RUN_BOSSES[info.boss].hits}</small></span></span>` : ''}${info.title ? `<span class="nt">${esc(info.title)}</span>` : ''}${nodeMeta(info)}</span>
+    <span class="nb"><b>${info.name}</b>${tags}${info.boss ? `<span class="nboss">${bossPortrait(info.boss, 'sm')}<span><b class="pink">${RUN_BOSSES[info.boss].name}</b><small class="num dim"> 耐久${info.bossLeft ?? RUN_BOSSES[info.boss].hits}</small>${RUN_BOSSES[info.boss].resist ? `<small class="pink"> ${TYPES[RUN_BOSSES[info.boss].resist].name}の型が効かない</small>` : ''}</span></span>` : ''}${info.title ? `<span class="nt">${esc(info.title)}</span>` : ''}${nodeMeta(info)}</span>
   </button>`;
+}
+
+/* ルートの性格。隠密・交戦・ネットを●○で3段階 */
+const routeDots = (b) => `<small class="rdots">${[['隠密', b.stealth], ['交戦', b.combat], ['ネット', b.net]].map(([k, n]) => `${k}${'●'.repeat(n)}${'○'.repeat(3 - n)}`).join(' ')}</small>`;
+
+/* 必須ロールが隊にそろっているか（臨時雇いで補える） */
+const reqMet = (req) => (req || []).every((role) => G.runners.some((r) => r.role === role && !r.temp));
+
+/* この幕の地図。1夜1行で、線でつながった先にしか進めない。今夜選べる行き先はタップで出発 */
+function actMap() {
+  const run = G.run, rows = Run.mapView(), opts = Run.options(), H = 44;
+  const lines = [];
+  rows.forEach((row, r) => {
+    const next = rows[r + 1];
+    if (!next) return;
+    row.nodes.forEach((a, i) => (a.to || []).forEach((j) => {
+      const b = next.nodes[j];
+      const on = a.state !== 'off' && b.state !== 'off';
+      lines.push(`<line x1="${((i + 0.5) / row.nodes.length) * 100}" y1="${(r + 0.5) * H}" x2="${((j + 0.5) / next.nodes.length) * 100}" y2="${(r + 1.5) * H}" class="${on ? 'on' : ''}"/>`);
+    }));
+  });
+  const mini = (n) => {
+    if (n.hidden) return '<button class="mini s-hidden" disabled title="危険度2：まだ見えない" aria-label="まだ見えない"><span>？</span></button>';
+    const info = Run.nodeInfo(n), oi = n.state === 'now' ? opts.findIndex((o) => o.idx === n.idx) : -1;
+    const req = info.req && info.req.length ? `<i class="rq ${reqMet(info.req) ? 'ok' : 'ng'}" title="必須：${info.req.map((r) => ROLES[r].name).join('・')}"></i>` : '';
+    const label = `${info.name}${info.title ? '：' + info.title : ''}${info.payout ? `（${fmt(info.payout)}cr）` : ''}`;
+    return `<button class="mini n-${n.type} s-${n.state}" ${oi >= 0 ? `data-act="go" data-v="${oi}"` : 'disabled'} title="${esc(label)}" aria-label="${esc(label)}"><span>${info.mark}</span>${req}</button>`;
+  };
+  return `<section class="actmap" aria-label="${Run.act().name}の地図">
+    <h3>${Run.act().name}の地図 <span class="label">線でつながった先にしか進めない</span></h3>
+    <div class="amwrap">
+      <div class="amlabels">${rows.map((row) => `<span class="${row.slot === run.slot ? 'cur' : ''}">${row.slot === Run.BOSS_SLOT ? '大仕事' : `${row.slot}夜`}</span>`).join('')}</div>
+      <div class="amnodes"><svg viewBox="0 0 100 ${rows.length * H}" preserveAspectRatio="none" aria-hidden="true">${lines.join('')}</svg>
+        ${rows.map((row) => `<div class="mrow">${row.nodes.map(mini).join('')}</div>`).join('')}</div>
+    </div>
+    <p class="hint dim">依頼の右上の点は必須ロール（青：隊にいる／ピンク：いない。臨時雇いで補える）。</p>
+  </section>`;
 }
 
 function tonightPanel() {
   const run = G.run, t = run.tonight;
-  if (!t) return `<section class="panel tonight"><h3>今夜の行き先をタップ</h3><p class="dim">${run.slot}夜目の行き先から1つ。タップするとすぐ出発し、取り消せません。依頼なら編成の画面が開き、送り出すと夜が明けます。隠れ家はそのまま夜が明けます。</p></section>`;
+  if (!t) return `<section class="panel tonight"><h3>今夜の行き先をタップ <span class="label">${run.slot === Run.BOSS_SLOT ? '大仕事' : `${run.slot}夜目`}</span></h3><p class="dim">昨夜の行き先から線がつながった先だけ選べます。タップするとすぐ出発し、取り消せません。依頼なら編成の画面が開き、送り出すと夜が明けます。隠れ家はそのまま夜が明けます。</p>
+    <div class="topts">${Run.options().map((n, i) => mapNode(n, i)).join('')}</div></section>`;
   const d = Run.DEST[t.type], tab = d.tab;
   const ms = t.type === 'cont' && G.missions[0];
   const body = t.type === 'cont' ? `${ms ? `「${esc(ms.job.title)}」の2夜目。` : ''}今夜は派遣の続きを待つだけです。`
@@ -239,10 +256,6 @@ function tonightPanel() {
 function viewHome() {
   const run = G.run;
   const acts = [1, 2, 3].map((a) => `<li class="${a < run.act ? 'done' : a === run.act ? 'cur' : ''}"><span class="label">${Run.ACTS[a].name}</span><b>${Run.ACTS[a].place}</b></li>`).join('');
-  const cols = [1, 2, 3, 4].map((slot) => `<div class="mcol ${slot < run.slot ? 'past' : slot === run.slot ? 'now' : ''}">
-      <div class="mh"><span class="label">${slot === 4 ? '大仕事' : `${slot}夜目`}</span>${slot === run.slot ? '<span class="chip p">今夜</span>' : ''}</div>
-      ${Run.options(slot).map((n, i) => mapNode(n, i, slot)).join('')}
-    </div>`).join('');
   const up = upkeepItems();
   const missions = G.missions.length
     ? G.missions.map((m) => {
@@ -252,21 +265,23 @@ function viewHome() {
     }).join('')
     : '<li class="dim">今夜はまだ誰も出ていません。</li>';
   const tut = run.act === 1 && G.night <= 2 ? `<section class="panel tut hint"><h3>ランの進め方</h3><ol>
-      <li>1ランは<b>3幕・12夜</b>。毎夜、地区マップの<b>行き先を1つタップ</b>する。先の夜まで見えるので、道を考えて選ぶ</li>
+      <li>1ランは<b>3幕・30夜</b>。毎夜、<b>行き先を1つタップ</b>する。地図は線でつながった先にしか進めないので、先の夜まで見て道を選ぶ</li>
       <li>依頼は編成して送り出すと夜が明ける。路地裏・闇医者・古物屋は、用事を済ませたら下のボタンで夜を明かす</li>
       <li><b>依頼</b>で派遣して稼ぐ。<b>路地裏</b>か、隊の画面の<b>顔見せ</b>（夜を使わないが契約金がかかる）で雇い、<b>闇医者</b>と<b>古物屋</b>で強くし、<b>隠れ家</b>で立て直す</li>
-      <li>各幕の4夜目は<b>大仕事</b>。失敗しても次の夜に一度だけ挑み直せる。2度目も失敗するとランは終わる</li>
-      <li>第1幕の大仕事には<b>ネットランナー</b>が要る。路地裏か顔見せで探しておくこと</li>
+      <li>各幕の10夜目は<b>大仕事</b>。失敗しても次の夜に一度だけ挑み直せる。2度目も失敗するとランは終わる</li>
+      <li>第1幕の大仕事には<b>ネットランナー</b>が要る。最初の隊には必ず1人いる。失ったら路地裏か顔見せで探すこと</li>
       <li>所持金が3夜続けてマイナス、または隊が全滅しても終わり</li>
     </ol></section>` : '';
   return `
   <section class="chapter">
-    <div class="label">RUN ・ ${Run.act().name} ・ ${Run.act().place} ・ 前歴：${Run.BACKGROUNDS[G.run.bg].name}${G.flags.ally ? ` ・ <span class="blue">${logo(G.flags.ally)}${CLIENTS[G.flags.ally].short}と協力中</span>` : ''}</div>
+    <div class="label">RUN ・ ${Run.act().name} ・ ${Run.act().place} ・ 前歴：${Run.BACKGROUNDS[G.run.bg].name}${G.run.danger ? ` ・ <span class="pink">危険度${G.run.danger}</span>` : ''}${G.flags.ally ? ` ・ <span class="blue">${logo(G.flags.ally)}${CLIENTS[G.flags.ally].short}と協力中</span>` : ''}</div>
     <ol class="acts">${acts}</ol>
   </section>
   ${tut}
-  <section class="map" aria-label="地区マップ"><div class="mcols">${cols}</div></section>
+  ${Run.canReroll() ? `<section class="panel reroll"><p>最初の隊：${G.runners.map((r) => `${esc(r.name)}（${ROLES[r.role].name}）`).join('、')}</p><button data-act="reroll">隊を引き直す（あと${G.run.rerolls}回）</button><small class="dim">最初の行き先を選ぶまで</small></section>` : ''}
   ${tonightPanel()}
+  ${actMap()}
+  ${coneList()}
   ${World.homeHtml()}
   <div class="cols">
     <section class="panel"><h3>派遣中</h3><ul class="mlist">${missions}</ul></section>
@@ -286,11 +301,20 @@ function viewHome() {
 
 function viewCrew() {
   return `<section class="roster">
-    <h2 class="sec">隊 <span class="label num">${G.runners.length}/${ROSTER_MAX}</span></h2>
+    <h2 class="sec">隊 <span class="label num">${crewSize()}/${ROSTER_MAX}</span></h2>
     <div class="runners">${G.runners.map((r) => runnerCard(r, 'roster')).join('') || '<p class="dim">誰もいません。路地裏で雇ってください。</p>'}</div>
   </section>
-  ${G.run && !G.ended ? viewWalkins() : ''}
+  <section class="panel"><h3>隊の型 <span class="label">効果は依頼に送り出した人の分だけで数える</span></h3>${typeSummary(Run.crewTypes(), '')}</section>
+  ${coneList()}
+  ${!G.ended ? viewWalkins() : ''}
   ${G.memorial.length ? `<section class="panel memorial"><h3>帰ってこなかった者</h3><ul>${G.memorial.map((m) => `<li><b>${esc(m.name)}</b>（${ROLES[m.role].name}） 夜${m.night}・${esc(m.cause)}</li>`).join('')}</ul></section>` : ''}`;
+}
+
+/* 持っているコネ */
+function coneList() {
+  const cs = G.run.cones || [];
+  if (!cs.length) return '';
+  return `<section class="panel cones"><h3>コネ <span class="label">ラン中ずっと効く</span></h3><ul>${cs.map((k) => `<li><b>${CONNECTIONS[k].name}</b>：${CONNECTIONS[k].desc}${CONNECTIONS[k].weak ? `<span class="pink">　弱み：${CONNECTIONS[k].weak}</span>` : ''}</li>`).join('')}</ul></section>`;
 }
 
 /* 顔見せ：夜を使わずに雇える今夜の候補（ラン中だけ） */
@@ -323,8 +347,8 @@ function viewEvent() {
 function viewScout() {
   return `<section>
     <h2 class="sec">路地裏 <span class="label">今夜の候補</span></h2>
-    <p class="lead hint">候補は今夜かぎりです。隊にいないロールが先に並びます。${G.run ? '路地裏の候補は契約金なしで雇え、資質持ちも出やすい。雇った人の分け前はフィクサーに入り、毎晩の手当はかかりません。' : `<b>歩合</b>は毎晩の支払いがなく、分け前は本人のもの。忠誠は上がらず、不満がたまると引き抜かれます。<b>専属</b>は待機中も手当がかかるかわりに、分け前がフィクサーに入り、義体や装備もフィクサーの所持金で買えます。`}</p>
-    <p class="dim">抱えているランナー ${G.runners.length}/${ROSTER_MAX}人</p>
+    <p class="lead hint">候補は今夜かぎりです。隊にいないロールが先に並びます。路地裏の候補は契約金なしで雇え、資質持ちも出やすい。</p>
+    <p class="dim">抱えているランナー ${crewSize()}/${ROSTER_MAX}人</p>
     <div class="runners">${G.scouts.map((r, i) => runnerCard(r, 'scout', i)).join('') || '<p class="dim">今夜の候補はもういません。</p>'}</div>
   </section>`;
 }
@@ -402,7 +426,7 @@ function stepHelp() {
     <h3>人間性とサイバーサイコシス</h3>
     <ul>
       <li>人間性は義体で削れる。上限はEMP×10（資質で変わる）。31以上は<b>安定</b></li>
-      <li><b>不安定（16〜30）</b>：${G.run ? '' : '派遣のたび忠誠−3、分け前の希望1.3倍。'}交戦の始めにd10で1が出ると<b>動揺</b>し、その交戦は射撃・回避−2</li>
+      <li><b>不安定（16〜30）</b>：交戦の始めにd10で1が出ると<b>動揺</b>し、その交戦は射撃・回避−2</li>
       <li><b>兆候（1〜15）</b>：交戦の始めに発作の判定。d10が (16−人間性)÷4 の切り上げ以下なら<b>暴走</b>（人間性12〜15で10%、8〜11で20%、4〜7で30%、1〜3で40%）</li>
       <li><b class="pink">暴走</b>：その交戦のあいだ射撃+2で2回撃つ（二連射とは重ならない）。続行／撤退の判断は出ない。敵を倒すたびに標的の企業のヒート+4（テーザーでも防げない）。交戦が終わると人間性−2。ラザロの対象外。通信では別の色で出る</li>
       <li>暴走した人が同じ依頼で3体倒すと、次の交戦の前に<b>市警の鎮圧班</b>が来る。引き渡す（その人はランから抜ける）・かばう（鎮圧班と交戦。勝てばこの幕のあいだ全依頼の敵+1）・撤退する（依頼は失敗）から選ぶ</li>
@@ -480,7 +504,10 @@ function formation(job, team) {
   const all = teamIds(team).map(getR);
   const req = job.req.map((role) => {
     const ok = role === 'net' ? team.net.length > 0 : all.some((r) => r.role === role);
-    return `<span class="chip ${ok ? 'b' : 'p'}">${ok ? '済' : '要'} ${ROLES[role].name}</span>`;
+    const none = !G.runners.some((r) => r.role === role && available(r));
+    const fee = Run.tempFee(job);
+    const temp = none ? `<button class="sm" data-act="temp" data-v="${job.uid}" data-role="${role}">臨時雇い（${fee ? `後払い ${fmt(fee)}cr` : '今回は無料'}）</button>` : '';
+    return `<span class="chip ${ok ? 'b' : 'p'}">${ok ? '済' : '要'} ${ROLES[role].name}</span>${temp}`;
   }).join('');
   const rows = G.runners.map((r) => {
     const ln = laneOf(team, r.id);
@@ -489,12 +516,19 @@ function formation(job, team) {
       ? `<div class="seg" role="group" aria-label="${esc(r.name)}の枠">${['field', 'support', 'net'].map((s) => `<button data-act="assign" data-r="${r.id}" data-v="${s}" aria-pressed="${ln === s}" ${s === 'net' && r.role !== 'net' ? 'disabled' : ''}>${LANE[s]}</button>`).join('')}<button data-act="assign" data-r="${r.id}" data-v="none" aria-pressed="${!ln}">外す</button></div>`
       : `<small class="dim">${statusText(r)}</small>`;
     const hurt = r.hp < maxHp(r) / 2 ? ' <span class="pink">重傷 −2</span>' : '';
+    // 交戦ごとの危なさ。不安定は動揺、兆候は暴走の確率
+    const z = humZone(r.humanity).key;
+    const risk = z === 'unstable' ? '<span class="chip o" title="交戦の始めにd10で2以下なら動揺。交戦ごとに人間性−1">動揺 20%</span>'
+      : z === 'sign' ? `<span class="chip p" title="交戦の始めに発作の判定">暴走 ${Math.ceil((16 - r.humanity) / 4) * 10}%</span>` : '';
     return `<div class="pick ${ln ? 'in' : ''} ${can ? '' : 'off'}">
-      <div class="pn">${portraitImg(r, 'sm')}<b>${esc(r.name)}</b><span class="role sm">${ROLES[r.role].tag}</span><span class="num dim">HP ${r.hp}/${maxHp(r)}${hurt}</span>${G.run ? '' : `<span class="dim">${r.contract === 'exclusive' ? '専属' : '歩合'}</span>`}</div>
+      <div class="pn">${portraitImg(r, 'sm')}<b>${esc(r.name)}</b>${r.temp ? '<span class="chip o">臨時</span>' : ''}<span class="role sm">${ROLES[r.role].tag}</span><span class="num dim">HP ${r.hp}/${maxHp(r)}${hurt}</span>${risk}</div>
       ${seg}</div>`;
   }).join('');
+  const B = job.runBoss && typeof job.boss === 'string' && RUN_BOSSES[job.boss];
+  const resist = B && B.resist ? `<p class="pink resist">${B.name}は${TYPES[B.resist].name}の型に強い。この大仕事では${TYPES[B.resist].name}の型の効果が出ない</p>` : '';
   return `<div class="actions"><button data-act="usualTeam" data-v="${job.uid}" ${G.lastTeam ? '' : 'disabled'}>いつもの面子</button></div>
     <div class="slots">${lane('field')}${lane('support')}${lane('net')}</div>
+    <h4 class="slot-h">送り出す人の型 <span class="label">2つ・4つ・6つで効果</span></h4>${typeSummary(countTypes(teamIds(team).map(getR).filter(Boolean).flatMap(typesOf)), '送り出した人の')}${resist}
     ${job.req.length ? `<div class="reqs"><span class="label">必須ロール</span>${req}</div>` : ''}
     <div class="picks">${rows || '<p class="dim">ランナーがいません。</p>'}</div>`;
 }
@@ -520,15 +554,14 @@ function estBox(job, team) {
 function payBox(job, team) {
   if (!teamIds(team).length) return '';
   const pp = payPreview(job, team);
-  const rows = pp.rows.map((x) => `<div><dt>${esc(x.r.name)}の分け前 <span class="dim">${G.run ? 'フィクサーへ' : x.excl ? '専属：フィクサーへ' : `歩合：本人へ（希望 ${fmt(demand(x.r))}）`}</span>${x.short ? ' <span class="pink">不満</span>' : ''}</dt><dd class="num">${fmt(x.per)}</dd></div>`).join('');
   const heat = [];
   if (job.target && CLIENTS[job.target].kind === 'corp') heat.push(`${CLIENTS[job.target].short} +${job.heat}`);
   if (CLIENTS[job.client].kind === 'corp') for (const c of CORPS) if (c !== job.client && c !== job.target) heat.push(`${CLIENTS[c].short} +${job.rank * 3}`);
   const cnt = G.repeats[job.tpl] || 0;
   const cred = job.special ? job.cred : cnt === 0 ? job.cred : cnt === 1 ? Math.ceil(job.cred / 2) : 0;
   return `<dl class="ledger pay">
-    <div><dt>仲介料（依頼額の20%）</dt><dd class="num">${fmt(pp.fee)}</dd></div>
-    ${rows}
+    <div><dt>依頼の報酬</dt><dd class="num">${fmt(pp.payout)}</dd></div>
+    ${pp.temps ? `<div><dt>臨時雇いの後払い <span class="dim">失敗しても払う</span></dt><dd class="num pink">−${fmt(pp.temps)}</dd></div>` : ''}
     <div class="tot"><dt>成功したときの手取り</dt><dd class="num">${fmt(pp.total)}cr</dd></div>
     <div><dt>評判</dt><dd class="num">+${cred}${cnt >= 1 && !job.special ? '（繰り返し）' : ''}</dd></div>
     ${heat.length ? `<div><dt>ヒート</dt><dd class="num pink">${heat.join('　')}</dd></div>` : ''}
@@ -567,7 +600,7 @@ function jobDetail(job) {
       <div><dt>依頼額</dt><dd class="num">${fmt(Math.round((job.basePayout ?? job.payout) * World.payoutMultiplier(job)))}cr</dd></div>
     </dl>
     <h3>ルート</h3>
-    <div class="toggle" role="group" aria-label="ルート">${job.routes.map((r, i) => `<button data-act="route" data-v="${i}" aria-pressed="${i === UI.route}">${esc(r.name)}</button>`).join('')}</div>
+    <div class="toggle routes" role="group" aria-label="ルート">${(() => { const rec = Run.recommendRoute(job, teamIds(getTeam(job.uid))); return job.routes.map((r, i) => `<button data-act="route" data-v="${i}" aria-pressed="${i === UI.route}"><span>${esc(r.name)}${i === rec ? ' <span class="chip b">おすすめ</span>' : ''}</span>${routeDots(Run.routeBars(r, job.intel))}</button>`).join(''); })()}</div>
     <p class="dim">${esc(job.routes[UI.route].note)}</p>
     ${phaseTable(job, UI.route)}
     <div class="intel">${job.intel
@@ -598,8 +631,7 @@ function viewShop() {
   let r = getR(UI.shop) || G.runners[0];
   const gear = r ? (() => {
     UI.shop = r.id;
-    const pays = r.contract === 'exclusive' ? 'fixer' : 'wallet';
-    const purse = pays === 'fixer' ? G.money : r.wallet;
+    const purse = G.money;
     const slots = Object.entries(GEAR_SLOTS).map(([slot, name]) => {
       const cur = r.gear[slot];
       const items = Object.keys(GEAR).filter((id) => GEAR[id].slot === slot && (!GEAR[id].drop || cur === id)).map((id) => {
@@ -617,7 +649,7 @@ function viewShop() {
     return `<div class="chips" role="group" aria-label="装備を買うランナー">${G.runners.map((x) => `<button data-act="shop" data-v="${x.id}" aria-pressed="${x.id === r.id}">${esc(x.name)}<small class="dim"> ${ROLES[x.role].tag}</small></button>`).join('')}</div>
       <div class="docwrap"><div class="docside">${runnerCard(r, 'doc')}</div>
       <div class="catalog"><h3>装備 <span class="label">人間性を削らずに伸ばす</span></h3>
-        <p class="dim">${G.run ? `フィクサーの所持金（${cr(G.money)}）で買います。` : pays === 'fixer' ? `専属なので、フィクサーの所持金（${cr(G.money)}）で買います。` : `歩合なので、${esc(r.name)}の手持ち（${cr(r.wallet)}）で買います。歩合のランナーは、手持ちがあれば自分でも買います。`}${World.level('armory') ? ' <span class="chip b">武器庫：2割引</span>' : ''}</p>
+        <p class="dim">所持金 ${cr(G.money)}</p>
         ${slots}</div></div>`;
   })() : '<p class="dim">装備を持たせるランナーがいません。</p>';
   const fix = r ? (() => { const rc = repairCost(r); return `<div class="panel care"><h3>防具の修理</h3><div class="carerow"><span>${esc(r.name)}の防具 ${r.armor}/${armorMax(r)}</span><button data-act="repair" data-r="${r.id}" ${!rc || r.status === 'mission' || rc > G.money ? 'disabled' : ''}>${rc ? cr(rc) : '不要'}</button></div></div>`; })() : '';
@@ -650,8 +682,7 @@ function viewDoc() {
       : `<small class="dim">導入済み</small><button class="sm" data-act="askrm" data-r="${r.id}" data-c="${c}">外す</button>`;
     else if (blocked) btns = `<small class="dim">${blocked}</small>`;
     else if (busy) btns = '<small class="dim">仕事中</small>';
-    else if (r.contract === 'exclusive') btns = `<button data-act="cyber" data-r="${r.id}" data-c="${c}" data-v="cash" ${price > G.money ? 'disabled' : ''}>${verb}現金で払う</button>`;
-    else btns = `<button data-act="cyber" data-r="${r.id}" data-c="${c}" data-v="wallet" ${price > r.wallet ? 'disabled' : ''}>${verb}本人の手持ちで払う</button>`;
+    else btns = `<button data-act="cyber" data-r="${r.id}" data-c="${c}" ${price > G.money ? 'disabled' : ''}>${verb}${fmt(price)}crで入れる</button>`;
     return `<div class="cw ${rec ? 'rec' : ''} ${owned || blocked ? 'owned' : ''} tier${cw.tier}">
       <div class="cwh"><b>${cw.name}</b><span class="label">${cw.part}</span>${cw.tier > 1 ? `<span class="chip o">上位 Mk.${'I'.repeat(cw.tier)}</span>` : ''}${rec ? '<span class="chip b">相性</span>' : ''}</div>
       <div class="cwp">${owned || blocked ? '' : `${portraitImg(r, 'md')}<span class="dim">→</span>${portraitImg(r, 'md', { cyber: preview, humanity: after })}<small class="dim">入れた後</small>`}</div>
@@ -681,7 +712,7 @@ function viewDoc() {
         <div class="panel care">
           <h3>処置</h3>
           <div class="carerow"><span>治療（HPを全快）</span><button data-act="treat" data-r="${r.id}" ${!tc || r.status !== 'idle' ? 'disabled' : ''}>${tc ? cr(tc) : '不要'}</button></div>
-          <div class="carerow"><span>セラピー（人間性+15、次の${World.therapyNights()}夜は出せない）</span><button data-act="therapy" data-r="${r.id}" ${r.status !== 'idle' || r.humanity >= maxHum(r) ? 'disabled' : ''}>${cr(THERAPY_COST)}</button></div>
+          <div class="carerow"><span>セラピー（人間性+15、次の${THERAPY_NIGHTS}夜は出せない）</span><button data-act="therapy" data-r="${r.id}" ${r.status !== 'idle' || r.humanity >= maxHum(r) ? 'disabled' : ''}>${cr(THERAPY_COST)}</button></div>
           <div class="carerow laz"><span>救急サブスク「ラザロ」<small class="dim">基本：死亡セーブに失敗したらHP1で回収（回収費は報酬額の30%）。武装回収：倒れたら回収班が1ラウンド撃ち、HP半分で運び出す（出動費${fmt(LAZARUS_ARMED.callout)}cr＋30%、1つの依頼で1回）。暴走中は対象外</small></span>
             <div class="seg" role="group" aria-label="ラザロのプラン">
               <button data-act="lazarus" data-r="${r.id}" data-v="" aria-pressed="${!r.lazarus}">なし</button>
@@ -693,7 +724,7 @@ function viewDoc() {
       <div class="catalog">
         <h3>義体 <span class="label">能力は経験より義体で伸びる</span></h3>
         <p class="dim hint">部位ごとに枠は2つ（体表は1つ）。同じ系統の上位モデルは入れ替わるので枠を使わない。枠がいっぱいのときは、どれかを外してから入れる。外した義体は戻らず、人間性も戻らない。</p>
-        <p class="dim hint">${G.run ? 'フィクサーの所持金で払います。' : r.contract === 'exclusive' ? '専属なので、フィクサーの所持金で払います。' : '歩合のランナーには立て替えられません。本人の手持ちで払います。'}${half ? ' <span class="chip b">割引券あり：半額</span>' : ''}</p>
+        <p class="dim hint">所持金で払います。${half ? ' <span class="chip b">割引券あり：半額</span>' : ''}</p>
         ${catChips}
         ${cat}
       </div>
@@ -785,14 +816,31 @@ function stepSettle(s) {
     ${s.credits && s.credits.length ? `<h3>効いたもの <span class="label">失敗を成功に変えた回数</span></h3><ul class="credits">${s.credits.map((c) => `<li><b>${esc(c.name)}</b>　${esc(c.label)} <span class="num">×${c.n}</span></li>`).join('')}</ul>` : ''}
     ${s.growth && s.growth.length ? `<h3>成長</h3><ul class="growth">${s.growth.map((g) => `<li>${esc(g)}</li>`).join('')}</ul>` : ''}
     ${s.notes.length ? `<ul class="notes">${s.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
-    ${b && b.run ? rewardPicker(b)
-      : b ? `<h3>追加報酬を1つ選ぶ</h3><div class="bonus">${b.opts.map((o, i) => `<button data-act="bonus" data-v="${i}"><span class="label">${o.title}</span>${o.text}</button>`).join('')}</div>`
+    ${b ? rewardPicker(b)
       : '<div class="mact"><button class="primary" data-act="next">次へ</button></div>'}`;
 }
 
 /* ───────── 報酬3択 ───────── */
 
-const REWARD_KIND = { cyber: '義体', gear: '装備', runner: 'ランナー', intel: '情報券', cr: 'cr' };
+const REWARD_KIND = { cyber: '義体', gear: '装備', runner: 'ランナー', cone: 'コネ', cr: 'cr' };
+const SLOT_NAME = { 1: '多い型', 2: '別の型', 3: 'コネか型のないもの' };
+/* 型のチップ。counts を渡すと、取ったあとの数と、次に開く効果を添える */
+function typeChips(types, counts) {
+  return (types || []).map((t) => {
+    if (!counts) return `<span class="chip ty ty-${t}">${TYPES[t].name}</span>`;
+    const now = counts[t] || 0, next = TYPE_STEPS.find((n) => n > now);
+    return `<span class="chip ty ty-${t}" title="${next ? `${TYPES[t].name}${next}つ：${TYPES[t].fx[next]}` : ''}">${TYPES[t].name} ${now}→${now + 1}${next === now + 1 ? '：効果' : ''}</span>`;
+  }).join('');
+}
+/* 隊の型の数と、効いている効果 */
+function typeSummary(counts, note) {
+  const keys = Object.keys(TYPES).filter((t) => counts[t]);
+  if (!keys.length) return `<p class="dim types">型はまだない。義体・装備・資質を集めると、${note}2つ・4つ・6つで効果が付く。</p>`;
+  return `<div class="types">${keys.map((t) => {
+    const n = counts[t], on = TYPE_STEPS.filter((k) => n >= k), next = TYPE_STEPS.find((k) => k > n);
+    return `<div class="tyrow"><span class="chip ty ty-${t}">${TYPES[t].name} ${n}</span><small>${on.map((k) => `<b>${k}</b> ${TYPES[t].fx[k]}`).join('　') || `<span class="dim">あと${next - n}つで：${TYPES[t].fx[next]}</span>`}${on.length && next ? `<span class="dim">　次は${next}つ</span>` : ''}</small></div>`;
+  }).join('')}</div>`;
+}
 /* 候補ごとに、受け取る人のボタンを並べる。義体はロールに合う人だけ、枠がいっぱいなら外すものを選ぶ */
 function rewardTargets(o, i) {
   const btn = (r, label, drop) => `<button class="sm" data-act="reward" data-v="${i}" data-r="${r ? r.id : ''}"${drop ? ` data-x="${drop}"` : ''}>${label}</button>`;
@@ -813,26 +861,27 @@ function rewardTargets(o, i) {
       return `<div class="rt">${btn(r, `${esc(r.name)}に持たせる`)}${g.roles.includes(r.role) ? '<span class="chip b">相性</span>' : ''}${cur ? `<small class="dim">「${GEAR[cur].name}」は下取り +${fmt(gearRefund(cur))}cr</small>` : ''}</div>`;
     }).join('');
   }
-  if (o.kind === 'runner') return `<div class="rt">${btn(null, G.runners.length >= ROSTER_MAX ? '隊がいっぱい' : '隊に入れる')}</div>`;
+  if (o.kind === 'runner') return `<div class="rt">${btn(null, crewSize() >= ROSTER_MAX ? '隊がいっぱい' : '隊に入れる')}</div>`;
   return `<div class="rt">${btn(null, '受け取る')}</div>`;
 }
 function rewardBody(o) {
   if (o.kind === 'cyber') {
     const c = CYBER[o.id];
-    return `<b>${c.name}</b>${c.tier > 1 ? `<span class="chip o">上位 Mk.${'I'.repeat(c.tier)}</span>` : ''}<p>${c.desc}</p><small class="dim">${CYBER_CATS[c.cat]} ・ 施術費なし（人間性は削れる）</small>`;
+    return `<b>${c.name}</b>${c.tier > 1 ? `<span class="chip o">上位 Mk.${'I'.repeat(c.tier)}</span>` : ''}<div class="tys">${typeChips(c.types, Run.crewTypes())}</div><p>${c.desc}</p><small class="dim">${CYBER_CATS[c.cat]} ・ 施術費なし（人間性は削れる）</small>`;
   }
-  if (o.kind === 'gear') { const g = GEAR[o.id]; return `<b>${g.name}</b><p>${g.desc}</p><small class="dim">${GEAR_SLOTS[g.slot]} ・ ${g.drop ? '古物屋では手に入らない' : `古物屋なら${fmt(g.price)}cr`}</small>`; }
+  if (o.kind === 'gear') { const g = GEAR[o.id]; return `<b>${g.name}</b><div class="tys">${typeChips(g.types, Run.crewTypes())}</div><p>${g.desc}</p><small class="dim">${GEAR_SLOTS[g.slot]} ・ ${g.drop ? '古物屋では手に入らない' : `古物屋なら${fmt(g.price)}cr`}</small>`; }
   if (o.kind === 'runner') {
     const r = o.runner, R = ROLES[r.role];
     const top = SKILLS.filter((k) => skill(r, k) > 0).sort((a, b) => skill(r, b) - skill(r, a)).slice(0, 3).map((k) => `${k}${skill(r, k)}`).join('・');
-    return `<div class="rwr">${portraitImg(r, 'sm')}<b>${esc(r.name)}</b><span class="role sm">${R.tag}</span></div>${r.trait ? `<span class="chip trait ${TRAITS[r.trait].rarity}">${TRAITS[r.trait].name}</span><p class="dim">${TRAITS[r.trait].desc}</p>` : ''}<p>${R.name} ・ ${top}</p>${G.run ? '' : `<small class="dim">歩合で加わる。専属に切り替えると手当 ${stipendFor(r)}cr/夜</small>`}`;
+    return `<div class="rwr">${portraitImg(r, 'sm')}<b>${esc(r.name)}</b><span class="role sm">${R.tag}</span></div>${r.trait ? `<span class="chip trait ${TRAITS[r.trait].rarity}">${TRAITS[r.trait].name}</span><p class="dim">${TRAITS[r.trait].desc}</p>` : ''}<p>${R.name} ・ ${top}</p>`;
   }
-  if (o.kind === 'intel') return '<b>情報券 ×2</b><p>情報購入が2回無料になる</p>';
+  if (o.kind === 'cone') { const k = CONNECTIONS[o.id]; return `<b>${k.name}</b><p>${k.desc}</p>${k.weak ? `<p class="pink">弱み：${k.weak}</p>` : ''}<small class="dim">ラン中ずっと効く</small>`; }
   return `<b>${fmt(o.amount)}cr</b><p>そのまま所持金に入る</p>`;
 }
 function rewardPicker(b) {
   return `<h3>報酬を1つ選ぶ ${b.rare ? '<span class="chip p">希少1つ確定</span>' : ''}</h3>
-    <div class="rewards">${b.opts.map((o, i) => `<div class="rw ${o.rare ? 'rare' : ''}"><span class="label">${REWARD_KIND[o.kind]}${o.rare ? ' ・ 希少' : ''}</span>${o.drop ? `<span class="chip p">${RUN_BOSSES[o.drop].name}の品</span>` : ''}${rewardBody(o)}<div class="rts">${rewardTargets(o, i)}</div></div>`).join('')}</div>
+    ${b.top ? `<p class="dim hint">1つ目は隊にいちばん多い型（${TYPES[b.top].name}）の品、2つ目は別の型、3つ目はコネか型のないもの。</p>` : ''}
+    <div class="rewards">${b.opts.map((o, i) => `<div class="rw ${o.rare ? 'rare' : ''}"><span class="label">${o.slot ? `${o.slot}つ目 ・ ` : ''}${REWARD_KIND[o.kind]}${o.rare ? ' ・ 希少' : ''}</span>${o.drop ? `<span class="chip p">${RUN_BOSSES[o.drop].name}の品</span>` : ''}${rewardBody(o)}<div class="rts">${rewardTargets(o, i)}</div></div>`).join('')}</div>
     <div class="mact"><button data-act="reward" data-v="-1">どれも取らない（+${fmt(Run.SKIP_CR)}cr）</button></div>`;
 }
 /* 精算の流れの外で残った報酬（読み込み直しなど）は、単独で選ばせる */
@@ -856,7 +905,7 @@ function stepStory(n, act = 'next') {
 function stepChoice() {
   const ch = CHAPTERS[G.awaitChoice], c = ch.choice;
   const heat = (o) => CORPS.map((k) => `${CLIENTS[k].short} ${k === o.ally ? ALLY_HEAT.ally : '+' + ALLY_HEAT.others}`).join('　');
-  return `<div class="label">${G.run ? 'ブラックボックス' : ch.title.split('　')[0]} ・ 分岐</div>
+  return `<div class="label">ブラックボックス ・ 分岐</div>
     <h2>${c.title}</h2>
     ${c.body.map((p) => `<p class="story">${p}</p>`).join('')}
     ${G.run && G.run.corp ? `<p class="dim">前歴「企業の元社員」：${CLIENTS[G.run.corp].name}と組むことは、始めから決まっている。</p>` : ''}
@@ -902,8 +951,6 @@ function renderModal() {
     if (s.k === 'report') html = stepReport(UI.flow.out);
   } else if (G && G.run && G.pending.length && G.pending[0].run && !G.ended) {
     key = 'reward-' + G.pending.length + '-' + G.pending[0].title; html = stepReward(G.pending[0]);
-  } else if (G && G.personalNotices && G.personalNotices.length) {
-    key='personal-'+G.personalNotices[0]; html=World.storyHtml(G.personalNotices[0]);
   } else if (G && G.awaitChoice) { key = 'choice-' + G.awaitChoice; html = stepChoice(); }
   else if (G && G.awaitEnding && !G.ended) { key = 'ending'; html = stepEndingChoice(); }
   else if (G && G.storyQueue && G.storyQueue.length) {
@@ -930,17 +977,17 @@ function stepCutin(key) {
     const [no, name] = key === 'intro' ? [Run.INTRO.kicker, Run.INTRO.title] : chapter().title.split('　');
     return cutin({ kicker: key === 'intro' ? `ヨミハマ ・ ${no}` : no, title: name, tone: 'blue' });
   }
-  if (key.startsWith('choice-')) return cutin({ kicker: G.run ? 'ブラックボックス' : CHAPTERS[key.slice(7)].title.split('　')[0], title: '分岐', tone: 'blue' });
+  if (key.startsWith('choice-')) return cutin({ kicker: 'ブラックボックス', title: '分岐', tone: 'blue' });
   if (key.startsWith('queued-')) {
     const [kick, title] = CHAPTERS[key.slice(7)].title.split('　');
-    return cutin({ kicker: `MAIN ・ ${G.run ? 'ブラックボックス' : kick}`, title, tone: 'pink' });
+    return cutin({ kicker: 'MAIN ・ ブラックボックス', title, tone: 'pink' });
   }
   if (!UI.flow) return;
   const s = UI.flow.steps[UI.flow.step];
   const out = UI.flow.out;
   if (s.k === 'story') {
     const [kick, title] = (CHAPTERS[s.n] || INTERLUDES[s.n]).title.split('　');
-    return cutin({ kicker: CHAPTERS[s.n] ? `MAIN ・ ${G.run ? 'ブラックボックス' : kick}` : kick, title, tone: CHAPTERS[s.n] ? 'pink' : 'blue' });
+    return cutin({ kicker: CHAPTERS[s.n] ? 'MAIN ・ ブラックボックス' : kick, title, tone: CHAPTERS[s.n] ? 'pink' : 'blue' });
   }
   if (s.k === 'comm' && out.comms[s.i].raid) return cutin({ kicker: '警報', title: '襲撃', sub: esc(out.comms[s.i].title), tone: 'red' });
   if (s.k === 'settle') {
@@ -1061,16 +1108,17 @@ function renderTitle() {
   const sv = loadSave();
   const exists = sv || loadError;
   app.innerHTML = `<div class="title-screen"><div class="ts-in">
-    <div class="label">ROGUELIKE ・ 12夜のラン</div>
+    <div class="label">ROGUELIKE ・ 30夜のラン</div>
     <h1 class="logo-big">FIXER'S CUT<span>フィクサーズ・カット</span></h1>
-    <p class="thesis">自分は撃たない。<em>12夜のうちに</em>街の上層まで仕事を通す。毎夜の選択で隊が育ち、ひとつの判定で隊が崩れる。</p>
-    <p class="dim">舞台は湾岸の沈みかけた都市ヨミハマ。1ランは3幕・12夜。毎夜、地区マップから行き先を1つ選び、各幕の最後に大仕事がある。ランナーは死ねば戻らず、隊の組み合わせはランごとに違う。決めるのは次の4つだけです。</p>
+    <p class="thesis">自分は撃たない。<em>30夜のうちに</em>街の上層まで仕事を通す。毎夜の選択で隊が育ち、ひとつの判定で隊が崩れる。</p>
+    <p class="dim">舞台は湾岸の沈みかけた都市ヨミハマ。1ランは3幕・30夜。毎夜、地区マップから行き先を1つ選び、各幕の最後に大仕事がある。ランナーは死ねば戻らず、隊の組み合わせはランごとに違う。決めるのは次の4つだけです。</p>
     <ul class="decide"><li>今夜、街のどこへ行くか</li><li>どの仕事に、誰を出すか</li><li>出す前に、情報にいくら払うか</li><li>どこまで体を機械にさせるか</li></ul>
     ${(() => { const m = Run.loadMeta(); return m.runs ? `<p class="dim num">これまでのラン ${m.runs}回 ・ クリア ${m.clears}回${m.best ? ` ・ 最高到達 ${m.best.clear ? 'クリア' : `${Run.ACTS[m.best.act].name} ${m.best.slot}夜目`}` : ''}</p>` : ''; })()}
     ${loadError ? `<div class="panel loaderr"><h3 class="pink">保存データを読み込めませんでした</h3><p>データは消さずに残してあります。更新直後なら、最新のファイルで読み込み直すと開けることがあります。</p><div class="actions">${recoveryButtons()}</div><p class="dim num">${esc(loadError)}</p></div>` : ''}
     <div class="ts-actions">
       ${exists && UI.ask === 'newgame' ? '<button class="danger big" data-act="new">今のランを捨てて始める（控えを1つ残します）</button>' : `<button class="${loadError ? '' : 'primary '}big" data-act="${exists ? 'asknew' : 'new'}">新しいランを始める</button>`}
       ${sv ? `<button class="big" data-act="continue">続きから（${Run.ACTS[sv.run.act].name}・${sv.run.slot}夜目）</button>` : ''}
+      ${Run.loadMeta().runs ? `<button class="big" data-act="hideout">隠れ家の改装（信用 ${Run.loadMeta().credit}）</button>` : ''}
     </div>
     <details class="howto"><summary>判定のしくみ</summary>
       <ul>
@@ -1111,16 +1159,35 @@ function runRoute() {
   }).join('');
 }
 
+/* 負けた理由。終わり方と、最後の失敗と、帰ってこなかった者 */
+function lossReasons() {
+  const run = G.run, t = G.ended.type, losses = run.losses || [];
+  const last = losses[losses.length - 1], bossLoss = losses.filter((l) => l.boss && l.act === run.act);
+  const why = {
+    bankrupt: '所持金が3夜続けてマイナスになった',
+    wipe: '隊が全滅した',
+    boss: `${Run.ACTS[run.act].name}の大仕事に2度失敗した`,
+  }[t] || '';
+  const items = [why && `<li><b>${why}</b></li>`];
+  for (const l of (t === 'boss' ? bossLoss : last ? [last] : [])) items.push(`<li>夜${l.night}「${esc(l.title)}」：${esc(l.reason || '失敗')}</li>`);
+  const dead = G.memorial.filter((m) => m.night >= G.night - 3);
+  if (dead.length) items.push(`<li>最後の数夜で失った：${dead.map((m) => `${esc(m.name)}（${esc(m.cause)}）`).join('、')}</li>`);
+  return `<h3>負けた理由</h3><ul class="why">${items.filter(Boolean).join('')}</ul>`;
+}
+
 function renderEnding() {
   const t = G.ended.type;
   const e = RUN_ENDS[t] || ENDINGS[t];
   const run = G.run, m = run.meta || Run.loadMeta();
   const clear = !RUN_ENDS[t];
   app.innerHTML = `<div class="title-screen ending"><div class="ts-in">
-    <div class="label">${clear ? 'RUN CLEAR' : 'RUN OVER'} ・ ${clear ? '12夜を越えた' : `${Run.ACTS[run.act].name} ${run.slot}夜目`}</div>
+    <div class="label">${clear ? 'RUN CLEAR' : 'RUN OVER'} ・ ${clear ? '30夜を越えた' : `${Run.ACTS[run.act].name} ${run.slot}夜目`}</div>
     <h1 class="logo-big">${e.title}</h1>
     ${e.body.map((p) => `<p class="story">${p}</p>`).join('')}
+    ${clear && m.fragments && m.fragments.length >= 5 ? `<p class="story blue">${Meta.HIDDEN_END}</p>` : ''}
     ${G.runners.length || G.flags.spared ? `<ul class="epilogue">${G.flags.spared ? '<li>名簿に載っていた被検体は、撃たれずに済んだ。検疫の外で、初めての朝を迎えた。</li>' : ''}${G.runners.map((r) => `<li>${esc(epilogue(r))}</li>`).join('')}</ul>` : ''}
+    ${clear ? '' : lossReasons()}
+    ${run.credit ? `<h3>信用 <span class="label">隠れ家の改装に使える</span></h3><dl class="ledger">${run.credit.lines.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd class="num">+${v}</dd></div>`).join('')}<div class="tot"><dt>このランで</dt><dd class="num">+${run.credit.total}</dd></div><div><dt>手持ちの信用</dt><dd class="num">${m.credit}</dd></div></dl>` : ''}
     <h3>たどった道</h3>
     <ul class="route">${runRoute()}</ul>
     <dl class="ledger endstats">
@@ -1132,7 +1199,7 @@ function renderEnding() {
       <div><dt>最後まで残ったランナー</dt><dd>${G.runners.map((r) => esc(r.name)).join('、') || 'なし'}</dd></div>
       <div><dt>帰ってこなかった者</dt><dd>${G.memorial.map((m) => esc(m.name)).join('、') || 'なし'}</dd></div>
     </dl>
-    <div class="ts-actions"><button class="primary big" data-act="restart">次のランへ</button></div>
+    <div class="ts-actions"><button class="primary big" data-act="restart">次のランへ</button><button class="big" data-act="hideout">隠れ家の改装へ</button></div>
   </div></div>`;
   modal.hidden = true;
   UI.modalKey = '';
@@ -1145,13 +1212,47 @@ function renderEnding() {
 
 /* ───────── 前歴を選ぶ ───────── */
 
+/* 隠れ家の改装。信用で部屋・協力者・出発前の準備・解放を買う。記念碑・伝説・物語の断片もここに出る */
+function renderHideout() {
+  City.setMode('full');
+  const m = Run.loadMeta();
+  const btn = (k, v, cost, done) => (done ? '<small class="dim">済み</small>' : `<button class="sm" data-act="buymeta" data-k="${k}" data-v="${v}" ${m.credit < cost ? 'disabled' : ''}>信用${cost}</button>`);
+  const rooms = Object.entries(Meta.ROOMS).map(([k, R]) => { const lv = Meta.room(m, k); return `<div class="mrow2"><b>${R.name}</b> <span class="label num">${lv}/3</span>
+    <ul class="checks">${R.lv.map((t, i) => `<li class="${i < lv ? 'done' : ''}">${i < lv ? '済' : `${i + 1}段`}　${t}</li>`).join('')}</ul>${btn('room', k, R.cost[lv], lv >= 3)}</div>`; }).join('');
+  const list = (T, kind, pre) => Object.entries(T).map(([k, x]) => `<li><b>${x.name}</b>${x.desc ? `：${x.desc}` : ''} ${btn(kind, k, x.cost, Meta.has(m, pre + k))}</li>`).join('');
+  const frags = Object.keys(Meta.FRAGMENTS).map((k) => `<li class="${m.fragments.includes(k) ? '' : 'dim'}">${m.fragments.includes(k) ? Meta.FRAGMENTS[k] : `？？？（${RUN_BOSSES[k].name}を初めて倒すと開く）`}</li>`).join('');
+  app.innerHTML = `<div class="title-screen hideout"><div class="ts-in">
+    <div class="label">HIDEOUT ・ ランをまたいで残るもの</div>
+    <h1 class="logo-big">隠れ家の改装</h1>
+    <p>信用 <b class="num">${m.credit}</b> <span class="dim">（これまでに${m.earned}・ラン${m.runs}回・クリア${m.clears}回）</span></p>
+    <p class="dim">信用は、生き延びた夜・越えた大仕事・クリア・初めてのことで増える。負けても、遠くまで行ったランほど多く残る。</p>
+    <h3>部屋 <span class="label">毎ランずっと効く</span></h3><div class="rooms">${rooms}</div>
+    <h3>協力者 <span class="label">各幕の地図の5夜目あたりに、その人の地点が出る</span></h3><ul class="metal">${list(Meta.CONTACTS, 'contact', 'contact_')}</ul>
+    <h3>出発前の準備 <span class="label">解放すると、ランの始めに1つ選んで持ち込める</span></h3><ul class="metal">${list(Meta.PREPS, 'prep', 'prep_')}</ul>
+    <h3>解放 <span class="label">前歴と、型ごとの強い品</span></h3><ul class="metal">${list(Meta.UNLOCKS, 'unlock', '')}</ul>
+    <h3>前歴の熟練 <span class="label">その前歴で遊ぶと上がる。2段：型の品をもう1つ／3段：弱みが消える</span></h3>
+    <ul class="metal">${Object.entries(Run.BACKGROUNDS).map(([k, b]) => `<li>${b.name}：${Meta.masteryOf(m, k)}段 <span class="dim">（${m.mastery[k] || 0}回）</span></li>`).join('')}</ul>
+    <h3>危険度 <span class="label">いま${m.dangerMax}段まで。クリアするたびに次の段が開く</span></h3><ul class="metal">${Meta.DANGER.slice(1).map((t, i) => `<li class="${i < m.dangerMax ? '' : 'dim'}">${i + 1}：${t}</li>`).join('')}</ul>
+    <h3>物語の断片 <span class="label">${m.fragments.length}/5</span></h3><ul class="metal">${frags}</ul>
+    ${m.legends.length ? `<h3>伝説 <span class="label">路地裏にまれに現れる</span></h3><ul class="metal">${m.legends.map((L) => `<li><b>${esc(L.name)}</b>（${ROLES[L.role].name}）<span class="dim"> ${L.run}回目のランをクリア</span></li>`).join('')}</ul>` : ''}
+    ${m.memorial.length ? `<h3>記念碑</h3><ul class="metal memorial">${m.memorial.map((x) => `<li><b>${esc(x.name)}</b>（${ROLES[x.role].name}）<span class="dim"> ${x.run}回目のラン・${esc(x.cause)}</span></li>`).join('')}</ul>` : ''}
+    <div class="ts-actions"><button class="primary big" data-act="new">新しいランを始める</button><button class="big" data-act="closehideout">タイトルへ戻る</button></div>
+  </div></div>`;
+  modal.hidden = true;
+  UI.modalKey = '';
+}
+
 function renderSetup() {
   City.setMode('full');
-  const st = UI.setup, Bs = Run.BACKGROUNDS;
-  const cards = Object.entries(Bs).map(([k, b]) => `<button class="bgc" data-act="setbg" data-v="${k}" aria-pressed="${st.bg === k}">
-      <span class="label">${b.later ? '信用で解放（試作中は選べる）' : '最初から'}</span><b>${b.name}</b>
-      <span class="bgcrew">${k === 'patchwork' ? '好きなロールで3人' : k === 'solo' ? 'ソロ・ドライバー（ジロウとサエ）' : b.crew.map((r) => ROLES[r].name).join('・')}</span>
-      <span class="blue">利点：${b.perk}</span><span class="pink">弱み：${b.weak}</span></button>`).join('');
+  const st = UI.setup, Bs = Run.BACKGROUNDS, meta = Run.loadMeta(), first = meta.runs === 0;
+  if (!Meta.bgOpen(st.bg, meta)) st.bg = 'solo';
+  const cards = Object.entries(Bs).map(([k, b]) => { const open = Meta.bgOpen(k, meta), lv = Meta.masteryOf(meta, k); return `<button class="bgc" data-act="setbg" data-v="${k}" aria-pressed="${st.bg === k}" ${open ? '' : 'disabled'}>
+      <span class="label">${open ? `熟練 ${lv}段${lv < 3 ? `（あと${Meta.MASTERY[lv] - (meta.mastery[k] || 0)}回で${lv + 1}段）` : ''}` : `隠れ家の改装で解放（信用${Meta.UNLOCKS['bg_' + k].cost}）`}</span><b>${b.name}</b>
+      <span class="bgcrew">${k === 'patchwork' ? '好きなロールで3人' : first ? 'ジロウ・サエ・ネットランナー（初めてのラン）' : 'ランダムな3人（ネットランナーと、戦える人を含む）'}</span>
+      <span class="blue">利点：${b.perk}</span><span class="pink">弱み：${b.weak}${lv >= 3 ? '（熟練3段で消えた）' : ''}</span></button>`; }).join('');
+  const danger = meta.dangerMax ? `<h3>危険度 <span class="label">クリアするたびに次の段が開く。稼ぐ信用は1段ごとに+10%</span></h3><div class="seg" role="group" aria-label="危険度">${Array.from({ length: meta.dangerMax + 1 }, (_, d) => `<button data-act="setdanger" data-v="${d}" aria-pressed="${(st.danger || 0) === d}">${d}</button>`).join('')}</div>${st.danger ? `<ul class="metal">${Meta.DANGER.slice(1, st.danger + 1).map((t, i) => `<li>${i + 1}：${t}</li>`).join('')}</ul>` : ''}` : '';
+  const preps = Meta.prepsOpen(meta);
+  const prep = preps.length ? `<h3>出発前の準備 <span class="label">1つ持ち込む</span></h3><div class="seg" role="group" aria-label="出発前の準備"><button data-act="setprep" data-v="" aria-pressed="${!st.prep}">なし</button>${preps.map((k) => `<button data-act="setprep" data-v="${k}" aria-pressed="${st.prep === k}" title="${Meta.PREPS[k].desc}">${Meta.PREPS[k].name}</button>`).join('')}</div>${st.prep ? `<p class="dim">${Meta.PREPS[st.prep].desc}</p>` : ''}` : '';
   const extra = st.bg === 'corp'
     ? `<h3>組む社</h3><div class="seg" role="group" aria-label="組む社">${CORPS.map((c) => `<button data-act="setcorp" data-v="${c}" aria-pressed="${st.corp === c}">${logo(c)}${CLIENTS[c].short}</button>`).join('')}</div>
       <p class="dim">第1幕の大仕事のあと、${CLIENTS[st.corp].name}と組むことが決まっている。第3幕のボスもこの社で決まる。</p>`
@@ -1161,9 +1262,11 @@ function renderSetup() {
   app.innerHTML = `<div class="title-screen"><div class="ts-in setup">
     <div class="label">NEW RUN ・ 前歴を選ぶ</div>
     <h1 class="logo-big">前歴</h1>
-    <p class="dim">フィクサーになる前に、何をしていたか。最初の隊と、ラン中ずっと効く利点と弱みが決まる。初期資金はどれも3,000cr（寄せ集めだけ1,000cr）。</p>
+    <p class="dim">フィクサーになる前に、何をしていたか。ラン中ずっと効く利点と弱みが決まる。最初の隊はランダムな3人で、最初の行き先を選ぶまで1回だけ引き直せる。初期資金はどれも3,000cr（寄せ集めだけ1,500cr）。</p>
     <div class="bgs">${cards}</div>
     ${extra}
+    ${danger}
+    ${prep}
     <div class="ts-actions"><button class="primary big" data-act="startrun">「${Bs[st.bg].name}」で始める</button><button class="big" data-act="cancelsetup">タイトルへ戻る</button></div>
   </div></div>`;
   modal.hidden = true;
@@ -1172,7 +1275,7 @@ function renderSetup() {
 
 function render() {
   try {
-    if (!G) return UI.setup ? renderSetup() : renderTitle();
+    if (!G) return UI.setup ? renderSetup() : UI.hideout ? renderHideout() : renderTitle();
     if (G.ended && !UI.flow) return renderEnding();
     City.setMode(UI.tab === 'home' ? 'full' : 'dim');
     if (!tabList().some(([k]) => k === UI.tab)) UI.tab = 'home';
@@ -1197,15 +1300,20 @@ const H_ = {
   reloadfresh() { reloadFresh(); },
   exportsave() { exportSave(); },
   totitle() { G = null; UI.flow = null; UI.ask = null; render(); },
-  new() { UI.ask = null; UI.setup = { bg: 'solo', corp: CORPS[0], roles: ['solo', 'net', 'driver'] }; render(); window.scrollTo(0, 0); },
+  new() { UI.ask = null; UI.hideout = false; UI.setup = { bg: 'solo', corp: CORPS[0], roles: ['solo', 'net', 'driver'] }; render(); window.scrollTo(0, 0); },
   setbg(b) { UI.setup.bg = b.dataset.v; render(); },
   setcorp(b) { UI.setup.corp = b.dataset.v; render(); },
   setrole(b) { UI.setup.roles[+b.dataset.i] = b.dataset.v; render(); },
   cancelsetup() { UI.setup = null; render(); },
+  hideout() { if (G && G.ended) clearSave(); G = null; UI.hideout = true; UI.flow = null; render(); window.scrollTo(0, 0); },
+  closehideout() { UI.hideout = false; render(); },
+  buymeta(b) { const e = Meta.buy(b.dataset.k, b.dataset.v); if (e) toast(e); render(); },
+  setprep(b) { UI.setup.prep = b.dataset.v || null; render(); },
+  setdanger(b) { UI.setup.danger = +b.dataset.v; render(); },
   startrun() {
     const st = UI.setup;
     clearSave(); UI.setup = null;
-    newGame(st.bg, { corp: st.corp, roles: st.roles });
+    newGame(st.bg, { corp: st.corp, roles: st.roles, prep: st.prep, danger: st.danger || 0, first: Run.loadMeta().runs === 0 });
     UI.tab = 'home'; save(); render(); window.scrollTo(0, 0);
   },
   continue() { G = loadSave(); UI.tab = 'home'; if(G && G.nightInProgress) H_.night(); else render(); },
@@ -1259,13 +1367,22 @@ const H_ = {
   recall(b) { act(() => recall(+b.dataset.v)); },
   walkin(b) {
     const r = Run.walkins()[+b.dataset.v];
-    act(() => Run.hireWalkin(+b.dataset.v) || (toast(`${r.name}が隊に加わった`), null));
+    act(() => Run.hireWalkin(+b.dataset.v, +b.dataset.drop || null) || (toast(`${r.name}が隊に加わった`), null));
   },
+  temp(b) {
+    const uid = +b.dataset.v, role = b.dataset.role;
+    const r = Run.tempHire(uid, role);
+    if (typeof r === 'string') { toast(r); return; }
+    const team = getTeam(uid), lane = role === 'net' ? 'net' : ['driver', 'med'].includes(role) && team.support.length < LANE_MAX.support ? 'support' : 'field';
+    if (team[lane].length < LANE_MAX[lane]) team[lane].push(r.id);
+    toast(`臨時雇いの${r.name}（${ROLES[role].name}）が今夜だけ加わった`);
+    save(); render();
+  },
+  reroll() { act(() => Run.rerollCrew() || (toast('最初の隊を引き直した'), null)); },
   hire(b) {
     const r = G.scouts[+b.dataset.v];
-    act(() => hire(+b.dataset.v, b.dataset.c) || (toast(G.run ? `${r.name}が隊に加わった` : `${r.name}と${b.dataset.c === 'exclusive' ? '専属' : '歩合'}で組んだ`), null));
+    act(() => hire(+b.dataset.v, +b.dataset.drop || null) || (toast(`${r.name}が隊に加わった`), null));
   },
-  contract(b) { act(() => setContract(getR(+b.dataset.r), b.dataset.v)); },
   askfire(b) { UI.ask = 'fire' + b.dataset.r; render(); },
   fire(b) { UI.ask = null; act(() => fire(getR(+b.dataset.r))); },
   doc(b) { UI.doc = +b.dataset.v; render(); },
@@ -1296,10 +1413,8 @@ const H_ = {
   lazarus(b) { act(() => Run.setLazarus(getR(+b.dataset.r), b.dataset.v || null)); },
   cyber(b) {
     const r = getR(+b.dataset.r), c = b.dataset.c;
-    act(() => buyCyber(r, c, b.dataset.v) || (toast(`${r.name}に「${CYBER[c].name}」を入れた。人間性 ${r.humanity}${r.humanity <= 0 ? '。もう戻れない' : ''}`), null));
+    act(() => buyCyber(r, c) || (toast(`${r.name}に「${CYBER[c].name}」を入れた。人間性 ${r.humanity}${r.humanity <= 0 ? '。もう戻れない' : ''}`), null));
   },
-  upgrade(b) { act(()=>World.buyUpgrade(b.dataset.v)); },
-  personalnotice() { G.personalNotices.shift(); UI.tab='board'; save(); render(); },
   decision(b) {
     const ctx=G.missions.find(m=>m.uid===+b.dataset.uid)?.progress;
     if(!ctx?.waiting)return;
@@ -1352,12 +1467,6 @@ const H_ = {
     act(() => removeCyber(r, c) || (toast(`${r.name}から「${CYBER[c].name}」を外した。人間性は戻らない`), null));
   },
   askrm(b) { UI.ask = 'rm' + b.dataset.r + b.dataset.c; render(); },
-  bonus(b) {
-    applyBonus(+b.dataset.v);
-    UI.flow.step++;
-    if (UI.flow.step >= UI.flow.steps.length) return flowDone();
-    render();
-  },
   ending(b) { chooseEnding(b.dataset.v); render(); },
 };
 
@@ -1371,7 +1480,7 @@ function flowDone() {
 }
 /* 物語や分岐が残っているあいだは待つ */
 function autoNight() {
-  if (!G || !G.run || G.ended || UI.flow || G.awaitChoice || G.awaitEnding || G.storyQueue.length || (G.personalNotices || []).length) return false;
+  if (!G || !G.run || G.ended || UI.flow || G.awaitChoice || G.awaitEnding || G.storyQueue.length ) return false;
   if (!G.run.tonight || G.run.tonight.type !== 'cont') return false;
   H_.night();
   return true;

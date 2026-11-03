@@ -10,7 +10,7 @@ function game({bg='solo',opt={},fixed=null,seed=1}={}) {
   math.random=()=>{if(fixed!==null)return fixed;seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   const c=vm.createContext({console,Math:math,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)}});
   const run=s=>vm.runInContext(s,c);
-  for(const f of ['data','engine','world','run'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
+  for(const f of ['data','engine','world','run','meta'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
   run(`newGame(${JSON.stringify(bg)},${JSON.stringify(opt)});G.storyQueue=[];G.news=2;G.conditions={};G.gangRelation=${bg==='gang'?30:0};`);
   // 能力値と技能を直接決めた隊員（snap）。st と sk は判定にそのまま使われる
   run(`function who(role,st={},sk={}){const r=makeRunner(role,{trait:null});G.runners.push(r);const m=snap(r);
@@ -23,16 +23,31 @@ function game({bg='solo',opt={},fixed=null,seed=1}={}) {
 
 /* ───────── 前歴 ───────── */
 
-test('each background starts with its crew, without traits, and its money',()=>{
-  for (const [bg,roles,money] of [['solo','solo,driver',3000],['net','net,tech',3000],['ripper','med,solo',3000],['corp','tech,driver',3000],['gang','solo,solo',3000]]) {
-    const run=game({bg});
-    assert.equal(run('G.runners.map(r=>r.role).join()'),roles,bg);
-    assert.equal(run('G.runners.every(r=>r.trait===null) && G.money'),money,bg);
-    assert.equal(run('G.run.bg'),bg);
+test('the starting crew is random but always has a netrunner and a fighter; the first run is the fixed crew',()=>{
+  for (const bg of ['solo','net','ripper','corp','gang']) for (let seed=1; seed<=40; seed++) {
+    const run=game({bg,seed});
+    const roles=run('G.runners.map(r=>r.role)');
+    assert.equal(roles.length,3,bg);
+    assert.ok(roles.includes('net') && roles.some(r=>['solo','driver'].includes(r)),`${bg} seed ${seed}: ${roles}`);
+    assert.equal(run('G.runners.every(r=>r.trait===null) && G.money'),3000,bg);
+    assert.equal(run('G.run.bg+G.run.rerolls'),bg+'1');
   }
   const run=game({bg:'patchwork',opt:{roles:['med','med','tech']}});
-  assert.equal(run('G.runners.map(r=>r.role).join()+"|"+G.money'),'med,med,tech|1000');
-  assert.equal(game()('G.runners.map(r=>r.name).join()'),'ジロウ,サエ'); // 元ソロはキャンペーン版と同じ二人
+  assert.equal(run('G.runners.map(r=>r.role).join()+"|"+G.money+"|"+G.run.rerolls'),'med,med,tech|1500|1');
+  assert.equal(run('Run.canReroll()'),false); // 寄せ集めは自分で選んだので引き直さない
+  const first=game({opt:{first:true}});
+  assert.equal(first('G.runners.map(r=>r.name+":"+r.role).slice(0,2).join()+"|"+G.runners[2].role+"|"+G.run.rerolls'),'ジロウ:solo,サエ:driver|net|0');
+});
+
+test('the starting crew can be rerolled once, only before the first destination',()=>{
+  const run=game({bg:'net',seed:5});
+  run('var before=G.runners.map(r=>r.id).join();');
+  assert.equal(run('Run.rerollCrew()'),null);
+  assert.equal(run('G.runners.length===3 && G.runners.map(r=>r.id).join()!==before && G.run.rerolls===0'),true);
+  assert.equal(run('Run.rerollCrew()'),'今は引き直せません');
+  const later=game({bg:'net',seed:6});
+  later('G.run.map[1]=[{type:"hideout"}]; Run.choose(0);');
+  assert.equal(later('Run.rerollCrew()'),'今は引き直せません');
 });
 
 test('元ソロ: +1 to shooting only in the first round of a fight',()=>{
@@ -49,8 +64,8 @@ test('元ソロ: +1 to shooting only in the first round of a fight',()=>{
 test('元ネットランナー: one free intel at the start of every act',()=>{
   const run=game({bg:'net'});
   assert.equal(run('G.vouchers.intel'),1);
-  run(`G.run.slot=4;G.run.tonight={type:'boss'};G.board=[];endNight();`); // 第1幕の大仕事を落としても幕は進まない
-  run(`G.run.act=1;G.run.slot=4;G.run.retried=false;Run.nextNight({settle:[{runBoss:true,success:true}],events:[],story:[]});`);
+  run(`G.run.slot=Run.BOSS_SLOT;G.run.tonight={type:'boss'};G.board=[];endNight();`); // 第1幕の大仕事を落としても幕は進まない
+  run(`G.run.act=1;G.run.slot=Run.BOSS_SLOT;G.run.retried=false;Run.nextNight({settle:[{runBoss:true,success:true}],events:[],story:[]});`);
   assert.equal(run('G.run.act===2 && G.vouchers.intel'),2);
 });
 
@@ -131,10 +146,10 @@ test('鋼の番犬: armour halves each hit without a tech; the commander adds +1
   const shots=(tech)=>{
     const run=game({fixed:.5});
     run(`const sh=()=>who('solo',{REF:10},{射撃:10});const ctx=fight(3,[BS('hound','甲板')],{field:[sh(),sh()],support:${tech?"[who('tech')]":'[]'},net:[]});`);
-    return run('JSON.stringify([said(ctx,"鋼の番犬を攻撃"),ctx.bossDown,ctx.log.some(l=>l.text.includes("ミツカネの警備兵の攻撃")&&l.calc.endsWith("DV19"))])');
+    return run('JSON.stringify([said(ctx,"鋼の番犬を攻撃"),ctx.bossDown,ctx.log.some(l=>l.text.includes("ミツカネの警備兵の攻撃")&&l.calc.endsWith("DV21"))])');
   };
-  assert.equal(shots(false),JSON.stringify([4,true,true])); // 警備兵の攻撃18＋指揮官1
-  assert.equal(shots(true),JSON.stringify([2,true,false]));
+  assert.equal(shots(false),JSON.stringify([5,true,true])); // 耐久5を1ずつ // 警備兵の攻撃20（第3幕の基準18＋装甲兵2）＋指揮官1
+  assert.equal(shots(true),JSON.stringify([3,true,true])); // テックがいれば1発で2
 });
 
 test('被検体: a talk at DV18 ends it without a shot, and the run remembers it',()=>{
@@ -161,7 +176,7 @@ test('保守主任: three layers of black ICE, a physical cut as the fallback, b
 
 test('a failed big job keeps the damage done to the boss for the retry',()=>{
   const run=game();
-  run(`G.run.slot=4;G.run.tonight={type:'boss'};G.board=[];Run.nextNight({settle:[{runBoss:true,success:false,bossLeft:1}],events:[],story:[]});`);
+  run(`G.run.slot=Run.BOSS_SLOT;G.run.tonight={type:'boss'};G.board=[];Run.nextNight({settle:[{runBoss:true,success:false,bossLeft:1}],events:[],story:[]});`);
   assert.equal(run('G.run.retried && G.run.bossLeft===1 && G.board[0].bossLeft===1 && G.board[0].runBoss'),true);
 });
 
@@ -170,5 +185,4 @@ test('a beaten boss drops its item into the reward; a boss that was not beaten d
   run(`G.runners.push(makeRunner('net'));const j=clone(RUN_JOBS.run_denki);j.runBoss=true;`);
   assert.equal(run(`Run.makeReward(j,{bossDown:true}).opts.some(o=>o.id==='denkiDeck'&&o.drop==='denki'&&o.rare)`),true);
   assert.equal(run(`Run.makeReward(j,{bossDown:false}).opts.some(o=>o.id==='denkiDeck')`),false);
-  assert.equal(run(`Object.keys(GEAR).filter(id=>GEAR[id].drop).every(id=>!gearWish(Object.assign(G.runners.at(-1),{wallet:99999})).includes(id))`),true);
 });

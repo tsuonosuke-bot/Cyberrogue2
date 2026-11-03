@@ -8,8 +8,8 @@ function game() {
   const math=Object.create(Math);math.random=()=>{calls++;return value;};
   const c=vm.createContext({console,Math:math,localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)}});
   const run=s=>vm.runInContext(s,c);
-  for(const f of ['data','engine','world','run'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
-  run(`newGame();G.money=20000;G.news=3;G.conditions={};G.board=[];G.runners=G.runners.slice(0,1);G.runners[0].contract='exclusive';G.runners[0].stipend=100;`);
+  for(const f of ['data','engine','world','run','meta'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
+  run(`newGame(undefined,{first:true});G.money=20000;G.news=3;G.conditions={};G.board=[];G.runners=G.runners.slice(0,1);`);
   const job=(field,net='N5()',nights=1)=>run(`
     const job=addJob({id:'test',title:'試験依頼',client:'resident',target:'verde',rank:1,district:'harbor',tags:[],req:[],payout:1000,cred:2,heat:10,nights:${nights},routes:[{name:'試験',field:${field},net:${net}}]},false);
     dispatch(job.uid,0,{field:[G.runners[0].id],support:[],net:[]});

@@ -10,9 +10,9 @@ function game({fixed=null,seed=1}={}) {
   math.random=()=>{if(fixed!==null)return fixed;seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   const c=vm.createContext({console,Math:math,localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)}});
   const run=s=>vm.runInContext(s,c);
-  for(const f of ['data','engine','world','run'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
-  run(`newGame();G.storyQueue=[];G.news=2;G.conditions={};G.gangRelation=0;G.run.bg='none';
-    for(const r of G.runners){r.contract='exclusive';r.stipend=100;}
+  for(const f of ['data','engine','world','run','meta'])run(fs.readFileSync(path.join(__dirname,'..','js',f+'.js'),'utf8'));
+  run(`newGame(undefined,{first:true});G.storyQueue=[];G.news=2;G.conditions={};G.gangRelation=0;G.run.bg='none';
+    
     function who(role,hum,st={},sk={}){const r=makeRunner(role,{trait:null});G.runners.push(r);const m=snap(r);
       for(const k of STATS)m.st[k]=st[k]??5;for(const k of SKILLS)m.sk[k]=sk[k]??0;m.hp=m.maxHp=99;m.armor=m.armorMax=0;m.humanity=hum;return m;}
     function mission(field,team,interactive=false,target='verde'){const j={rank:1,district:'harbor',intel:true,tags:[],target,routes:[{field,net:field.map(()=>null)}]};
@@ -22,15 +22,22 @@ function game({fixed=null,seed=1}={}) {
   return {run,storage};
 }
 
-test('不安定: a 1 on the d10 at the start of a fight shakes the runner, −2 to shooting and dodging',()=>{
+test("不安定: a 1 or 2 on the d10 shakes the runner (−2 to shooting and dodging); every fight costs 1 humanity",()=>{
   const {run}=game({fixed:.05});
   run(`const m=shooter(25);const ctx=mission([C(1,'見張り')],{field:[m],support:[],net:[]});runMission(ctx);
     const shot=ctx.log.find(l=>l.text.includes('を攻撃'));`);
   assert.equal(run('said(ctx,"動揺している")'),1);
   assert.equal(run('shot.calc.includes("－動揺 2")'),true);
+  assert.equal(run('ctx.humLoss[m.id]===1 && m.humanity===24'),true); // 張りつめた交戦で人間性−1
+  const two=game({fixed:.15}).run; // d10 は2
+  two(`const m=shooter(25);const ctx=mission([C(1,'見張り')],{field:[m],support:[],net:[]});runMission(ctx);`);
+  assert.equal(two('said(ctx,"動揺している")'),1);
+  const three=game({fixed:.25}).run; // d10 は3：動揺しないが、人間性は減る
+  three(`const m=shooter(25);const ctx=mission([C(1,'見張り')],{field:[m],support:[],net:[]});runMission(ctx);`);
+  assert.equal(three('said(ctx,"動揺している")===0 && ctx.humLoss[m.id]===1'),true);
   const calm=game({fixed:.05}).run;
   calm(`const m=shooter(50);const ctx=mission([C(1,'見張り')],{field:[m],support:[],net:[]});runMission(ctx);`);
-  assert.equal(calm('said(ctx,"動揺")'),0);
+  assert.equal(calm('said(ctx,"動揺")===0 && !(ctx.humLoss||{})[m.id]'),true);
 });
 
 test('兆候: the seizure needs a d10 at or under ceil((16 − humanity) / 4)',()=>{
@@ -156,6 +163,8 @@ test('元部下: choosing them puts the job on the board; stopping them or a squ
   assert.equal(run('j.deserter && j.rank===1 && j.payout===3000'),true);
   run(`G.board=[];const s={notes:[]};Run.deserterDone(j,{success:false,suppressed:true},s);`);
   assert.equal(run('G.run.deserters.length===0 && G.memorial.at(-1).cause'),'鎮圧班が片付けた（元部下）');
+  // 元部下を倒した報酬は、幕のボスの品を探さずに出る（boss がボスの名前ではなく能力の形なので）
+  assert.equal(run('Run.makeReward(j,{success:true,bossDown:true}).opts.length'),3);
 });
 
 test('元部下: not beaten in three rounds, the squad steps in — the job fails and no heat is added',()=>{

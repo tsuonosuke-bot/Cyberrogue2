@@ -154,10 +154,18 @@ function dock() {
     <div class="proj">
       <span class="label">夜明けの見込み</span>
       <span class="num">${cr(G.money)} − ${fmt(up)} ＝ <b class="${after < 0 ? 'pink' : ''}">${cr(after)}</b></span>
-      <small>${!Run.canEndNight() ? '先に地区マップで今夜の行き先を決める' : G.missions.length ? `派遣中${G.missions.length}件の報酬は含みません` : '今夜は誰も出ていません'}</small>
+      <small>${!Run.canEndNight() ? '地区マップで行き先をタップすると出発' : G.missions.length ? `派遣中${G.missions.length}件の報酬は含みません` : '今夜は誰も出ていません'}</small>
     </div>
-    <button class="primary big" data-act="night" ${Run.canEndNight() ? '' : 'disabled title="地区マップで今夜の行き先を決めてください"'}>夜を明かす</button>
+    ${dockButton()}
   </div></div>`;
+}
+/* 夜を明かすボタンは、自分で用事を終える行き先（路地裏・闇医者・古物屋）と、依頼を見送るときだけ。
+   それ以外は、行き先を選ぶ・送り出す・事件に答えると、そのまま夜が明ける */
+function dockButton() {
+  const tab = Run.tonightTab();
+  if (['scout', 'doc', 'shop'].includes(tab)) return '<button class="primary big" data-act="night">用事を済ませて夜を明かす</button>';
+  if (tab === 'board' && G.board.length) return '<button class="big" data-act="night">送り出さずに夜を明かす</button>';
+  return '';
 }
 
 /* ───────── 隠れ家 ───────── */
@@ -197,10 +205,9 @@ function mapNode(n, i, slot) {
   const now = slot === run.slot && !run.tonight;
   const picked = run.picked[slot] === i || (slot === run.slot && run.tonight && run.tonight.type === n.type && n.type === 'boss');
   const past = slot < run.slot && !picked;
-  const sel = now && UI.mapSel === i;
   const tags = [n.type === 'hard' ? '<span class="chip p">危険</span>' : '', n.type === 'boss' && run.retried && slot === run.slot ? '<span class="chip p">再挑戦</span>' : '',
     info.until ? `<span class="chip p">あと${info.until - G.night + 1}夜</span>` : ''].join('');
-  return `<button class="node n-${n.type}${picked ? ' picked' : ''}${past ? ' past' : ''}${sel ? ' sel' : ''}" data-act="mapsel" data-v="${i}" ${now ? '' : 'disabled'}>
+  return `<button class="node n-${n.type}${picked ? ' picked' : ''}${past ? ' past' : ''}" data-act="go" data-v="${i}" ${now ? '' : 'disabled'}>
     <span class="mk" aria-hidden="true">${info.mark}</span>
     <span class="nb"><b>${info.name}</b>${tags}${info.boss ? `<span class="nboss">${bossPortrait(info.boss, 'sm')}<span><b class="pink">${RUN_BOSSES[info.boss].name}</b><small class="num dim"> 耐久${info.bossLeft ?? RUN_BOSSES[info.boss].hits}</small></span></span>` : ''}${info.title ? `<span class="nt">${esc(info.title)}</span>` : ''}${nodeMeta(info)}</span>
   </button>`;
@@ -208,13 +215,7 @@ function mapNode(n, i, slot) {
 
 function tonightPanel() {
   const run = G.run, t = run.tonight;
-  if (!t) {
-    const n = UI.mapSel != null && run.map[run.slot][UI.mapSel];
-    if (!n) return `<section class="panel tonight"><h3>今夜の行き先を選ぶ</h3><p class="dim">${run.slot}夜目の行き先から1つを選びます。決めたら取り消せません。</p></section>`;
-    const info = Run.nodeInfo(n);
-    return `<section class="panel tonight"><h3>${info.name}${info.title ? `：${esc(info.title)}` : ''}</h3><p>${info.desc}</p>
-      <div class="actions"><button class="primary big" data-act="go" data-v="${UI.mapSel}">今夜はここへ行く</button></div></section>`;
-  }
+  if (!t) return `<section class="panel tonight"><h3>今夜の行き先をタップ</h3><p class="dim">${run.slot}夜目の行き先から1つ。タップするとすぐ出発し、取り消せません。依頼なら編成の画面が開き、送り出すと夜が明けます。隠れ家はそのまま夜が明けます。</p></section>`;
   const d = Run.DEST[t.type], tab = d.tab;
   const ms = t.type === 'cont' && G.missions[0];
   const body = t.type === 'cont' ? `${ms ? `「${esc(ms.job.title)}」の2夜目。` : ''}今夜は派遣の続きを待つだけです。`
@@ -241,7 +242,8 @@ function viewHome() {
     }).join('')
     : '<li class="dim">今夜はまだ誰も出ていません。</li>';
   const tut = run.act === 1 && G.night <= 2 ? `<section class="panel tut hint"><h3>ランの進め方</h3><ol>
-      <li>1ランは<b>3幕・12夜</b>。毎夜、地区マップから<b>行き先を1つ</b>選ぶ。先の夜まで見えるので、道を考えて選ぶ</li>
+      <li>1ランは<b>3幕・12夜</b>。毎夜、地区マップの<b>行き先を1つタップ</b>する。先の夜まで見えるので、道を考えて選ぶ</li>
+      <li>依頼は編成して送り出すと夜が明ける。路地裏・闇医者・古物屋は、用事を済ませたら下のボタンで夜を明かす</li>
       <li><b>依頼</b>で派遣して稼ぐ。<b>路地裏</b>で雇い、<b>闇医者</b>と<b>古物屋</b>で強くし、<b>隠れ家</b>で立て直す</li>
       <li>各幕の4夜目は<b>大仕事</b>。失敗しても次の夜に一度だけ挑み直せる。2度目も失敗するとランは終わる</li>
       <li>第1幕の大仕事には<b>ネットランナー</b>が要る。路地裏で探しておくこと</li>
@@ -555,7 +557,7 @@ function jobDetail(job) {
     ${estBox(job, team)}
     ${payBox(job, team)}
     ${errs.length && teamIds(team).length ? `<ul class="errs">${errs.map((e) => `<li>${e}</li>`).join('')}</ul>` : ''}
-    <button class="primary big" data-act="dispatch" data-v="${job.uid}" ${errs.length ? 'disabled' : ''}>送り出す</button>
+    <button class="primary big" data-act="dispatch" data-v="${job.uid}" ${errs.length ? 'disabled' : ''}>送り出す（夜が明ける）</button>
   </article>`;
 }
 
@@ -1188,19 +1190,22 @@ const H_ = {
   continue() { G = loadSave(); UI.tab = 'home'; if(G && G.nightInProgress) H_.night(); else render(); },
   restart() { G = null; clearSave(); UI.ask = null; UI.flow = null; render(); },
   closeintro() { G.storyQueue = G.storyQueue.filter((x) => x !== 'intro'); save(); render(); },
-  closestory() { G.storyQueue.shift(); save(); render(); },
-  branch(b) { act(() => chooseBranch(+b.dataset.v)); },
-  mapsel(b) { UI.mapSel = +b.dataset.v; render(); },
+  closestory() { G.storyQueue.shift(); save(); autoNight() || render(); },
+  branch(b) { act(() => chooseBranch(+b.dataset.v)); autoNight(); },
   go(b) {
     const err = Run.choose(+b.dataset.v);
     if (err) { toast(err); return; }
-    UI.mapSel = null;
     const t = G.run.tonight, tab = Run.DEST[t.type].tab;
-    if (tab) UI.tab = tab;
-    toast(t.note || `今夜の行き先：${Run.DEST[t.type].name}`);
-    save(); render(); window.scrollTo(0, 0);
+    save();
+    if (!tab) { toast(t.note || Run.DEST[t.type].name); return H_.night(); } // 隠れ家はそのまま夜が明ける
+    UI.tab = tab;
+    render(); window.scrollTo(0, 0);
   },
-  eventopt(b) { act(() => Run.resolveEvent(+b.dataset.v)); },
+  eventopt(b) {
+    const err = Run.resolveEvent(+b.dataset.v);
+    if (err) { toast(err); return; }
+    save(); H_.night(); // 事件に答えたら夜が明ける（結果は夜明けの報告に出る）
+  },
   tab(b) { UI.tab = b.dataset.v; UI.ask = null; render(); window.scrollTo(0, 0); },
   job(b) {
     UI.job = +b.dataset.v; UI.route = 0; render();
@@ -1228,7 +1233,7 @@ const H_ = {
     delete UI.team[uid];
     UI.job = null;
     toast(`「${job.title}」に送り出した`);
-    save(); render();
+    save(); H_.night(); // 送り出したら夜が明ける
   },
   recall(b) { act(() => recall(+b.dataset.v)); },
   hire(b) {
@@ -1282,7 +1287,7 @@ const H_ = {
     const out = endNight();
     if (!out) { render(); return; }
     UI.flow = { id: Date.now(), out, step: 0, steps: buildSteps(out) };
-    UI.team = {}; UI.est = { key: '', val: null }; UI.ask = null; UI.mapSel = null; UI.tab = 'home';
+    UI.team = {}; UI.est = { key: '', val: null }; UI.ask = null; UI.tab = 'home';
     render();
   },
   skiplog() {
@@ -1306,14 +1311,14 @@ const H_ = {
     if (box && [...box.querySelectorAll('.ln')].some((l) => !l.classList.contains('on'))) return H_.skiplog();
     if (!UI.flow || UI.flow.out.pending) return;
     UI.flow.step++;
-    if (UI.flow.step >= UI.flow.steps.length) { UI.flow = null; UI.tab = UI.tab === 'log' ? 'log' : UI.tab; }
+    if (UI.flow.step >= UI.flow.steps.length) return flowDone();
     render();
   },
   reward(b) {
     const err = Run.takeReward(+b.dataset.v, +b.dataset.r, b.dataset.x);
     if (err) { toast(err); return; }
     save();
-    if (UI.flow) { UI.flow.step++; if (UI.flow.step >= UI.flow.steps.length) UI.flow = null; }
+    if (UI.flow) { UI.flow.step++; if (UI.flow.step >= UI.flow.steps.length) return flowDone(); }
     render();
   },
   rmcyber(b) {
@@ -1325,11 +1330,27 @@ const H_ = {
   bonus(b) {
     applyBonus(+b.dataset.v);
     UI.flow.step++;
-    if (UI.flow.step >= UI.flow.steps.length) UI.flow = null;
+    if (UI.flow.step >= UI.flow.steps.length) return flowDone();
     render();
   },
   ending(b) { chooseEnding(b.dataset.v); render(); },
 };
+
+/* 夜明けの流れが終わったら、次の夜の画面へ。選べない夜（2夜依頼の続き）はそのまま明かし、大仕事の夜は依頼を開く */
+function flowDone() {
+  UI.flow = null;
+  if (autoNight()) return;
+  const tab = G && G.run && !G.ended ? Run.tonightTab() : null;
+  UI.tab = tab || 'home';
+  render(); window.scrollTo(0, 0);
+}
+/* 物語や分岐が残っているあいだは待つ */
+function autoNight() {
+  if (!G || !G.run || G.ended || UI.flow || G.awaitChoice || G.awaitEnding || G.storyQueue.length || (G.personalNotices || []).length) return false;
+  if (!G.run.tonight || G.run.tonight.type !== 'cont') return false;
+  H_.night();
+  return true;
+}
 
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');

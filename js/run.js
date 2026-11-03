@@ -441,6 +441,7 @@ const Run = (() => {
     const boss = out.settle.find((s) => s.runBoss);
     const skippedBoss = run.tonight && run.tonight.type === 'boss' && G.board.some((j) => j.uid === run.tonight.uid);
     G.board = []; G.scouts = [];
+    if (run.event && run.event.done) out.events.push({ kind: 'ok', text: `${EVENTS[run.event.key].title}：${run.event.done}` });
     run.event = null;
     run.tonight = null;
     // 期限までに止めに行かなかった元部下は、鎮圧班が片付ける

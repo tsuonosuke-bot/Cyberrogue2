@@ -107,7 +107,19 @@ test('taking each kind of reward applies it once; skipping pays 500cr',()=>{
   run(`G.pending=[{run:true,title:'t',opts:[{kind:'cr',amount:800}]}];`);
   assert.equal(run('Run.takeReward(-1)===null && G.money===m+500'),true);
   run(`var nr=makeRunner('net'); G.pending=[{run:true,title:'t',opts:[{kind:'runner',runner:nr}]}];`);
-  assert.equal(run('Run.takeReward(0)===null && G.runners.includes(nr) && nr.contract==="commission"'),true);
+  assert.equal(run('Run.takeReward(0)===null && G.runners.includes(nr) && nr.contract==="exclusive" && nr.stipend===0'),true);
+});
+
+test('runs have no contracts: one hire button, no stipend, the whole share goes to the fixer',()=>{
+  const run=game();
+  run(`G.scouts=[makeRunner('tech')]; var s=G.scouts[0];`);
+  assert.equal(run('hire(0,"commission")'),null); // ラン中は契約の種類を問わない
+  assert.equal(run('s.contract==="exclusive" && s.stipend===0 && G.runners.includes(s)'),true);
+  assert.equal(run('upkeepItems().some(([k])=>k.includes(s.name))'),false);
+  run(`var r=G.runners[0]; r.loyalty=0; G.money=5000; G.run.map[1]=[{type:'hideout'}]; Run.choose(0); endNight();`);
+  assert.equal(run('G.runners.includes(r)'),true); // 忠誠が低くても持ち逃げしない
+  run(`var g=JSON.parse(JSON.stringify(G)); g.runners[0].contract='commission'; g.runners[0].stipend=300; migrate(g);`);
+  assert.equal(run('g.runners[0].contract==="exclusive" && g.runners[0].stipend===0'),true);
 });
 
 test('a taken item never comes back in the same run; untaken ones can',()=>{

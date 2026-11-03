@@ -242,6 +242,7 @@ function migrate(g) {
     for (const ch of r.name + r.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     r.gender = story[r.story] || ['m', 'f', 'x'][h % 3];
   }
+  if (g.run) for (const r of [...g.runners, ...g.scouts]) crewTerms(r); // 契約をなくす前のランの保存データ
   return g;
 }
 
@@ -1275,7 +1276,7 @@ function interlude(out) {
 
 function upkeepItems() {
   const items = [['隠れ家代', RENT], ...World.upkeep()];
-  for (const r of G.runners) if (r.contract === 'exclusive') items.push([`${r.name}の手当`, r.stipend]);
+  for (const r of G.runners) if (r.contract === 'exclusive' && r.stipend) items.push([`${r.name}の手当`, r.stipend]);
   const laz = G.runners.filter((r) => r.lazarus && r.lazarus !== 'armed').length, armed = G.runners.filter((r) => r.lazarus === 'armed').length;
   if (laz) items.push([`ラザロ会費 ×${laz}`, laz * LAZARUS_FEE]);
   if (armed) items.push([`ラザロ武装回収 ×${armed}`, armed * LAZARUS_ARMED.fee]);
@@ -1425,7 +1426,7 @@ function endNight() {
         continue;
       }
     }
-    if (r.contract === 'exclusive' && r.status === 'idle' && r.loyalty < 15 && rnd() < 0.3) {
+    if (!G.run && r.contract === 'exclusive' && r.status === 'idle' && r.loyalty < 15 && rnd() < 0.3) {
       const take = Math.min(Math.max(0, Math.round(G.money * 0.1)), 1500);
       G.money -= take;
       leaveRunner(r);
@@ -1467,10 +1468,20 @@ function endNight() {
 
 /* ───────── 契約・闇医者 ───────── */
 
+/* ランには契約がない。隊員は全員、分け前がフィクサーに入り、手当はかからず、装備もフィクサーが買う */
+function crewTerms(r) {
+  r.contract = 'exclusive'; r.stipend = 0; r.discontent = 0;
+  return r;
+}
 function hire(i, contract) {
   const r = G.scouts[i];
   if (!r) return '候補が見つかりません';
   if (G.runners.length >= ROSTER_MAX) return `抱えられるのは${ROSTER_MAX}人までです`;
+  if (G.run) {
+    crewTerms(r); r.joined = G.night;
+    G.runners.push(r); G.scouts.splice(i, 1);
+    return null;
+  }
   if (contract === 'exclusive' && r.pref === 'commission') return `${r.name}は歩合でしか組まない`;
   if (contract === 'commission' && r.pref === 'exclusive') return `${r.name}は専属契約でなければ組まない`;
   r.contract = contract;

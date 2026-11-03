@@ -145,6 +145,7 @@ const Run = (() => {
       for (const c of CORPS) G.heat[c] = clamp(G.heat[c] + (c === corp ? -15 : 10), 0, 100);
     }
     if (bg === 'gang') G.gangRelation = 30;
+    for (const r of G.runners) crewTerms(r);
     g.run.map = genMap(1);
     G.board = []; G.scouts = [];
   }
@@ -282,14 +283,14 @@ const Run = (() => {
       title: '路地で倒れていたランナー',
       body: '雨の路地に、撃たれたランナーがうずくまっている。手当てをすれば、恩を返すと言う。',
       opts: [
-        { label: '手当てして迎え入れる', cost: 300, text: '歩合のランナーが1人加わる（HPは半分）', run: () => {
+        { label: '手当てして迎え入れる', cost: 300, text: 'ランナーが1人加わる（HPは半分）', run: () => {
           if (G.runners.length >= ROSTER_MAX) return `抱えられるのは${ROSTER_MAX}人までです`;
           const have = new Set(G.runners.map((r) => r.role));
           const roles = Object.keys(ROLES).filter((k) => !have.has(k));
           const r = makeRunner(pick(roles.length ? roles : Object.keys(ROLES)), { pref: 'any' });
-          r.hp = Math.ceil(maxHp(r) / 2); r.joined = G.night;
+          crewTerms(r); r.hp = Math.ceil(maxHp(r) / 2); r.joined = G.night;
           G.runners.push(r);
-          return `${r.name}（${ROLES[r.role].name}）が歩合で加わった`;
+          return `${r.name}（${ROLES[r.role].name}）が隊に加わった`;
         } },
         { label: '見なかったことにする', text: '何も起きない', run: () => {} },
       ],
@@ -424,7 +425,7 @@ const Run = (() => {
       R().taken.push(o.id);
     } else if (o.kind === 'runner') {
       if (G.runners.length >= ROSTER_MAX) return `抱えられるのは${ROSTER_MAX}人までです`;
-      o.runner.joined = G.night;
+      crewTerms(o.runner); o.runner.joined = G.night;
       G.runners.push(o.runner);
     } else if (o.kind === 'intel') G.vouchers.intel += 2;
     else if (o.kind === 'cr') G.money += o.amount;

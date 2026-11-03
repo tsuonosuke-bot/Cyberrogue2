@@ -81,7 +81,14 @@ function runnerCard(r, mode, idx) {
   const skills = SKILLS.filter((k) => skill(r, k) > 0).map((k) => `<span title="次の上昇まで ${Math.round(xpOf(k) * 100)}%">${k}<b class="num">${skill(r, k)}</b>${mode === 'scout' ? '' : `<i class="xp"><i style="width:${Math.round(xpOf(k) * 100)}%"></i></i>`}</span>`).join('');
   const gear = Object.values(r.gear || {}).filter((id) => GEAR[id]);
   let contract = '', actions = '';
-  if (mode === 'roster') {
+  if (mode === 'roster' && G.run) {
+    const busy = r.status === 'mission';
+    actions = `<div class="actions">${UI.ask === 'fire' + r.id
+      ? `<button class="danger" data-act="fire" data-r="${r.id}">本当に隊から外す</button>`
+      : `<button data-act="askfire" data-r="${r.id}" ${busy ? 'disabled' : ''}>隊から外す</button>`}</div>`;
+  } else if (mode === 'scout' && G.run) {
+    actions = `<div class="actions"><button class="primary" data-act="hire" data-v="${idx}">雇う</button></div>`;
+  } else if (mode === 'roster') {
     contract = r.contract === 'exclusive'
       ? `<div class="contract"><span class="chip b">専属</span> 手当 <b class="num">${r.stipend}cr</b>/夜 ・ 忠誠 <b class="num">${r.loyalty}</b>${r.loyalty < 25 ? ' <span class="pink">離れそう</span>' : ''}</div>`
       : `<div class="contract"><span class="chip o">歩合</span> 分け前の希望 <b class="num">${fmt(demand(r))}cr</b>以上 ・ 手持ち <b class="num">${fmt(r.wallet)}cr</b>${r.discontent ? ` ・ <span class="pink">不満 ${r.discontent}</span>` : ''}</div>`;
@@ -302,7 +309,7 @@ function viewEvent() {
 function viewScout() {
   return `<section>
     <h2 class="sec">路地裏 <span class="label">今夜の候補</span></h2>
-    <p class="lead hint">候補は今夜かぎりです。隊にいないロールが先に並びます。<b>歩合</b>は毎晩の支払いがなく、分け前は本人のもの。忠誠は上がらず、不満がたまると引き抜かれます。<b>専属</b>は待機中も手当がかかるかわりに、分け前がフィクサーに入り、義体や装備もフィクサーの所持金で買えます。</p>
+    <p class="lead hint">候補は今夜かぎりです。隊にいないロールが先に並びます。${G.run ? '雇った人の分け前はフィクサーに入り、毎晩の手当はかかりません。' : `<b>歩合</b>は毎晩の支払いがなく、分け前は本人のもの。忠誠は上がらず、不満がたまると引き抜かれます。<b>専属</b>は待機中も手当がかかるかわりに、分け前がフィクサーに入り、義体や装備もフィクサーの所持金で買えます。`}</p>
     <p class="dim">抱えているランナー ${G.runners.length}/${ROSTER_MAX}人</p>
     <div class="runners">${G.scouts.map((r, i) => runnerCard(r, 'scout', i)).join('') || '<p class="dim">今夜の候補はもういません。</p>'}</div>
   </section>`;
@@ -381,7 +388,7 @@ function stepHelp() {
     <h3>人間性とサイバーサイコシス</h3>
     <ul>
       <li>人間性は義体で削れる。上限はEMP×10（資質で変わる）。31以上は<b>安定</b></li>
-      <li><b>不安定（16〜30）</b>：派遣のたび忠誠−3、分け前の希望1.3倍。交戦の始めにd10で1が出ると<b>動揺</b>し、その交戦は射撃・回避−2</li>
+      <li><b>不安定（16〜30）</b>：${G.run ? '' : '派遣のたび忠誠−3、分け前の希望1.3倍。'}交戦の始めにd10で1が出ると<b>動揺</b>し、その交戦は射撃・回避−2</li>
       <li><b>兆候（1〜15）</b>：交戦の始めに発作の判定。d10が (16−人間性)÷4 の切り上げ以下なら<b>暴走</b>（人間性12〜15で10%、8〜11で20%、4〜7で30%、1〜3で40%）</li>
       <li><b class="pink">暴走</b>：その交戦のあいだ射撃+2で2回撃つ（二連射とは重ならない）。続行／撤退の判断は出ない。敵を倒すたびに標的の企業のヒート+4（テーザーでも防げない）。交戦が終わると人間性−2。ラザロの対象外。通信では別の色で出る</li>
       <li>暴走した人が同じ依頼で3体倒すと、次の交戦の前に<b>市警の鎮圧班</b>が来る。引き渡す（その人はランから抜ける）・かばう（鎮圧班と交戦。勝てばこの幕のあいだ全依頼の敵+1）・撤退する（依頼は失敗）から選ぶ</li>
@@ -469,7 +476,7 @@ function formation(job, team) {
       : `<small class="dim">${statusText(r)}</small>`;
     const hurt = r.hp < maxHp(r) / 2 ? ' <span class="pink">重傷 −2</span>' : '';
     return `<div class="pick ${ln ? 'in' : ''} ${can ? '' : 'off'}">
-      <div class="pn">${portraitImg(r, 'sm')}<b>${esc(r.name)}</b><span class="role sm">${ROLES[r.role].tag}</span><span class="num dim">HP ${r.hp}/${maxHp(r)}${hurt}</span><span class="dim">${r.contract === 'exclusive' ? '専属' : '歩合'}</span></div>
+      <div class="pn">${portraitImg(r, 'sm')}<b>${esc(r.name)}</b><span class="role sm">${ROLES[r.role].tag}</span><span class="num dim">HP ${r.hp}/${maxHp(r)}${hurt}</span>${G.run ? '' : `<span class="dim">${r.contract === 'exclusive' ? '専属' : '歩合'}</span>`}</div>
       ${seg}</div>`;
   }).join('');
   return `<div class="actions"><button data-act="usualTeam" data-v="${job.uid}" ${G.lastTeam ? '' : 'disabled'}>いつもの面子</button></div>
@@ -499,7 +506,7 @@ function estBox(job, team) {
 function payBox(job, team) {
   if (!teamIds(team).length) return '';
   const pp = payPreview(job, team);
-  const rows = pp.rows.map((x) => `<div><dt>${esc(x.r.name)}の分け前 <span class="dim">${x.excl ? '専属：フィクサーへ' : `歩合：本人へ（希望 ${fmt(demand(x.r))}）`}</span>${x.short ? ' <span class="pink">不満</span>' : ''}</dt><dd class="num">${fmt(x.per)}</dd></div>`).join('');
+  const rows = pp.rows.map((x) => `<div><dt>${esc(x.r.name)}の分け前 <span class="dim">${G.run ? 'フィクサーへ' : x.excl ? '専属：フィクサーへ' : `歩合：本人へ（希望 ${fmt(demand(x.r))}）`}</span>${x.short ? ' <span class="pink">不満</span>' : ''}</dt><dd class="num">${fmt(x.per)}</dd></div>`).join('');
   const heat = [];
   if (job.target && CLIENTS[job.target].kind === 'corp') heat.push(`${CLIENTS[job.target].short} +${job.heat}`);
   if (CLIENTS[job.client].kind === 'corp') for (const c of CORPS) if (c !== job.client && c !== job.target) heat.push(`${CLIENTS[c].short} +${job.rank * 3}`);
@@ -596,7 +603,7 @@ function viewShop() {
     return `<div class="chips" role="group" aria-label="装備を買うランナー">${G.runners.map((x) => `<button data-act="shop" data-v="${x.id}" aria-pressed="${x.id === r.id}">${esc(x.name)}<small class="dim"> ${ROLES[x.role].tag}</small></button>`).join('')}</div>
       <div class="docwrap"><div class="docside">${runnerCard(r, 'doc')}</div>
       <div class="catalog"><h3>装備 <span class="label">人間性を削らずに伸ばす</span></h3>
-        <p class="dim">${pays === 'fixer' ? `専属なので、フィクサーの所持金（${cr(G.money)}）で買います。` : `歩合なので、${esc(r.name)}の手持ち（${cr(r.wallet)}）で買います。歩合のランナーは、手持ちがあれば自分でも買います。`}${World.level('armory') ? ' <span class="chip b">武器庫：2割引</span>' : ''}</p>
+        <p class="dim">${G.run ? `フィクサーの所持金（${cr(G.money)}）で買います。` : pays === 'fixer' ? `専属なので、フィクサーの所持金（${cr(G.money)}）で買います。` : `歩合なので、${esc(r.name)}の手持ち（${cr(r.wallet)}）で買います。歩合のランナーは、手持ちがあれば自分でも買います。`}${World.level('armory') ? ' <span class="chip b">武器庫：2割引</span>' : ''}</p>
         ${slots}</div></div>`;
   })() : '<p class="dim">装備を持たせるランナーがいません。</p>';
   const fix = r ? (() => { const rc = repairCost(r); return `<div class="panel care"><h3>防具の修理</h3><div class="carerow"><span>${esc(r.name)}の防具 ${r.armor}/${armorMax(r)}</span><button data-act="repair" data-r="${r.id}" ${!rc || r.status === 'mission' || rc > G.money ? 'disabled' : ''}>${rc ? cr(rc) : '不要'}</button></div></div>`; })() : '';
@@ -672,7 +679,7 @@ function viewDoc() {
       <div class="catalog">
         <h3>義体 <span class="label">能力は経験より義体で伸びる</span></h3>
         <p class="dim hint">部位ごとに枠は2つ（体表は1つ）。同じ系統の上位モデルは入れ替わるので枠を使わない。枠がいっぱいのときは、どれかを外してから入れる。外した義体は戻らず、人間性も戻らない。</p>
-        <p class="dim hint">${r.contract === 'exclusive' ? '専属なので、フィクサーの所持金で払います。' : '歩合のランナーには立て替えられません。本人の手持ちで払います。'}${half ? ' <span class="chip b">割引券あり：半額</span>' : ''}</p>
+        <p class="dim hint">${G.run ? 'フィクサーの所持金で払います。' : r.contract === 'exclusive' ? '専属なので、フィクサーの所持金で払います。' : '歩合のランナーには立て替えられません。本人の手持ちで払います。'}${half ? ' <span class="chip b">割引券あり：半額</span>' : ''}</p>
         ${catChips}
         ${cat}
       </div>
@@ -741,7 +748,7 @@ function pendingComm(c) {
   if (c.kind === 'maxtac') return `<div class="label">通信・鎮圧班</div><h2>${esc(c.title)}</h2>${commStrip(c)}<div class="log play">${logLines(c.lines, !instantLog())}</div><div class="tail" ${instantLog() ? '' : 'hidden'}>${squadChoice(c)}</div>${speedControl()}<button data-act="skiplog">すべて表示</button>`;
   return '<div class="label">通信・判断待ち（最大2回）</div><h2>'+esc(c.title)+'</h2>'+commStrip(c)+
     '<div class="log play">'+logLines(c.lines,!instantLog())+'</div>'+
-    '<div class="tail" '+(instantLog()?'':'hidden')+'><p class="pink">'+esc(c.reason)+'</p><p>続行は残りを判定。撤退は報酬なし、標的ヒートは失敗時と同じ。家賃・手当は通常どおりです。</p><div class="mact"><button class="primary" data-act="decision" data-v="yes" data-uid="'+c.uid+'">続行</button><button data-act="decision" data-v="no" data-uid="'+c.uid+'">撤退</button></div></div>'+speedControl()+'<button data-act="skiplog">すべて表示</button>';
+    '<div class="tail" '+(instantLog()?'':'hidden')+'><p class="pink">'+esc(c.reason)+'</p><p>続行は残りを判定。撤退は報酬なし、標的ヒートは失敗時と同じ。毎晩の支払いは通常どおりです。</p><div class="mact"><button class="primary" data-act="decision" data-v="yes" data-uid="'+c.uid+'">続行</button><button data-act="decision" data-v="no" data-uid="'+c.uid+'">撤退</button></div></div>'+speedControl()+'<button data-act="skiplog">すべて表示</button>';
 }
 
 function speedControl() {
@@ -792,7 +799,7 @@ function rewardTargets(o, i) {
       return `<div class="rt">${btn(r, `${esc(r.name)}に持たせる`)}${g.roles.includes(r.role) ? '<span class="chip b">相性</span>' : ''}${cur ? `<small class="dim">「${GEAR[cur].name}」は下取り +${fmt(gearRefund(cur))}cr</small>` : ''}</div>`;
     }).join('');
   }
-  if (o.kind === 'runner') return `<div class="rt">${btn(null, G.runners.length >= ROSTER_MAX ? '隊がいっぱい' : '歩合で隊に入れる')}</div>`;
+  if (o.kind === 'runner') return `<div class="rt">${btn(null, G.runners.length >= ROSTER_MAX ? '隊がいっぱい' : '隊に入れる')}</div>`;
   return `<div class="rt">${btn(null, '受け取る')}</div>`;
 }
 function rewardBody(o) {
@@ -804,7 +811,7 @@ function rewardBody(o) {
   if (o.kind === 'runner') {
     const r = o.runner, R = ROLES[r.role];
     const top = SKILLS.filter((k) => skill(r, k) > 0).sort((a, b) => skill(r, b) - skill(r, a)).slice(0, 3).map((k) => `${k}${skill(r, k)}`).join('・');
-    return `<div class="rwr">${portraitImg(r, 'sm')}<b>${esc(r.name)}</b><span class="role sm">${R.tag}</span></div>${r.trait ? `<span class="chip trait ${TRAITS[r.trait].rarity}">${TRAITS[r.trait].name}</span><p class="dim">${TRAITS[r.trait].desc}</p>` : ''}<p>${R.name} ・ ${top}</p><small class="dim">歩合で加わる。専属に切り替えると手当 ${stipendFor(r)}cr/夜</small>`;
+    return `<div class="rwr">${portraitImg(r, 'sm')}<b>${esc(r.name)}</b><span class="role sm">${R.tag}</span></div>${r.trait ? `<span class="chip trait ${TRAITS[r.trait].rarity}">${TRAITS[r.trait].name}</span><p class="dim">${TRAITS[r.trait].desc}</p>` : ''}<p>${R.name} ・ ${top}</p>${G.run ? '' : `<small class="dim">歩合で加わる。専属に切り替えると手当 ${stipendFor(r)}cr/夜</small>`}`;
   }
   if (o.kind === 'intel') return '<b>情報券 ×2</b><p>情報購入が2回無料になる</p>';
   return `<b>${fmt(o.amount)}cr</b><p>そのまま所持金に入る</p>`;
@@ -1238,7 +1245,7 @@ const H_ = {
   recall(b) { act(() => recall(+b.dataset.v)); },
   hire(b) {
     const r = G.scouts[+b.dataset.v];
-    act(() => hire(+b.dataset.v, b.dataset.c) || (toast(`${r.name}と${b.dataset.c === 'exclusive' ? '専属' : '歩合'}で組んだ`), null));
+    act(() => hire(+b.dataset.v, b.dataset.c) || (toast(G.run ? `${r.name}が隊に加わった` : `${r.name}と${b.dataset.c === 'exclusive' ? '専属' : '歩合'}で組んだ`), null));
   },
   contract(b) { act(() => setContract(getR(+b.dataset.r), b.dataset.v)); },
   askfire(b) { UI.ask = 'fire' + b.dataset.r; render(); },

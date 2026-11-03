@@ -642,5 +642,5 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); }
 .n-deserter .mk, .mk.n-deserter { color: var(--red); }
 .n-deserter { border-color: var(--red); }
 .bonus.squad button .label { color: var(--pink); }
-.carerow.laz { flex-wrap: wrap; }
+.carerow.laz { grid-template-columns: 1fr; align-items: start; }
 .carerow.laz .seg { display: flex; flex-wrap: wrap; gap: 4px; }

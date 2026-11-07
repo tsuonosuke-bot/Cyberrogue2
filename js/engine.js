@@ -857,7 +857,7 @@ function combat(ctx, n, label, o = {}) {
         if(ctx.alert)return null;
       }
       if(won())return end(true); // ラザロの回収班が最後の敵を倒したとき
-      if(!fighters().length)return end(false,label+'との交戦で全員が倒れた。撤退');
+      if(!fighters().length)return end(false,label+'との交戦で、全員が倒れた');
       if(!s.ambush)s.round++;s.ambush=false;
       // 回収屋の癖：決められたラウンドで倒しきれないと、目標を1つ持ち去る
       if (B && B.seize && s.round>=B.seize) {
@@ -869,12 +869,16 @@ function combat(ctx, n, label, o = {}) {
       }
       // ラン中の元部下は、3ラウンドで倒しきれないと鎮圧班が割り込んで片付ける（依頼は失敗、ヒートは上がらない）
       if(s.round>=3&&o.boss&&ctx.job.deserter&&G.run){ctx.suppressed=true;return end(false,`鎮圧班が割り込んで、${o.boss.name}を片付けた`);}
-      if(s.round>=(typeOn(ctx,'endure',4)?4:3))return end(false,label+'を押し切れず撤退');
+      // 交戦はどちらかが倒れるまで続く。持久4：ラウンドが終わるたび、いちばん傷の深い人のHP+3
+      if(typeOn(ctx,'endure',4)){const w=fighters().sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp)[0];if(w&&w.hp<w.maxHp){w.hp=Math.min(w.maxHp,w.hp+3);sub(ctx,`${w.name}が息を整えた。HP+3（持久）`,'ok');}}
+      // 念のための上限（隠れたボスに手が届かないまま、誰も倒れないとき）
+      if(s.round>=COMBAT_ROUND_CAP)return end(false,label+'との決着がつかないまま、夜が明けかけた');
       s.stage='player';s.player=0;s.shot=0;s.netDone=false;
     }
   }
 }
 
+const COMBAT_ROUND_CAP = 12;
 /* ネットのボス（保守主任）。黒ICEを1層ずつ破り、抜けなければ現場から回線を物理的に切る */
 function netBoss(ctx, p, B) {
   let left = bossHits(B);
@@ -894,7 +898,7 @@ function netBoss(ctx, p, B) {
     if (c.ok) left = 0;
   }
   ctx.bossLeft = left;
-  if (left > 0) return abort(ctx, `${B.name}を止められず撤退`);
+  if (left > 0) return abort(ctx, `${B.name}を止められなかった`);
   ctx.bossDown = true;
   L(ctx, '', `${B.name}の回線が落ちた`, 'ok');
 }
@@ -959,7 +963,9 @@ function fieldPhase(ctx, p) {
         L(ctx, m.name, k ? `${p.l}（やり直し）` : p.l, c.ok ? 'ok' : 'ng', c.calc);
         if (c.ok) return;
       }
-      abort(ctx, `${p.l}を開けられず撤退`);
+      // 開かなければ力ずくで破る。警報が鳴り、次の交戦で敵+2
+      ctx.mods.extraEnemy += 2; addHeat(ctx, tgt, 8);
+      sub(ctx, `開かない。力ずくで破った。警報が鳴った　次の交戦で敵+2${tgt ? `　${tName}のヒート +8` : ''}`, 'ng');
       break;
     }
     case 'goal': ctx.goals++; L(ctx, '', `${p.l}　確保`, 'goal'); break;
@@ -1037,7 +1043,7 @@ function netFail(ctx, p) {
     case 'door': ctx.mods.gateUp += 4; sub(ctx, '扉の制御を奪えない。次の扉のDV+4', 'ng'); break;
     case 'alarm': ctx.mods.chase = true; sub(ctx, '警報が作動。逃走は追撃戦になる', 'ng'); break;
     case 'trace': addHeat(ctx, tgt, 6); sub(ctx, `逆探知された${tgt ? `　${CLIENTS[tgt].short}のヒート +6` : ''}`, 'ng'); break;
-    case 'data': abort(ctx, `${p.l}を抜けず撤退`); break;
+    case 'data': abort(ctx, `${p.l}を抜けなかった。目標を取り逃した`); break;
   }
 }
 
@@ -1083,7 +1089,7 @@ function runMission(ctx, nightLimit = Infinity) {
       else { ctx.stage = 0; ctx.ph++; }
     }
     if (ctx.alert && !ctx.aborted) { ctx.waiting = true; ctx.decisions++; return ctx; }
-    if (ctx.team.field.length && ctx.team.field.every(m=>!alive(m))) abort(ctx,'現場の全員が動けない。撤退');
+    if (!ctx.aborted && ctx.team.field.length && ctx.team.field.every(m=>!alive(m))) abort(ctx,'現場の全員が倒れた');
   }
   ctx.success = !ctx.aborted && ctx.goals >= ctx.need;
   if (!ctx.aborted && !ctx.success) ctx.reason = '目標に届かなかった';

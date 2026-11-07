@@ -39,3 +39,8 @@ test('every skill has narration for success and failure, and every role has line
   run(`const line={t:'22:10',who:'サエ',text:'検問',kind:'ok',calc:'x',sk:'運転',role:'driver',night:1};`);
   assert.equal(run('Flavor.of(line).text===Flavor.of({...line}).text'),true);
 });
+
+test('every narrated line has real text, whatever the hash comes out as',()=>{
+  const run=game();
+  assert.equal(run(`[...Array(400)].every((_,i)=>{const l={t:String(i),who:'ジロウ'+i,text:'通常兵を攻撃',kind:i%2?'ok':'ng',calc:'x',sk:Object.keys(SKILL_STAT)[i%9],role:Object.keys(ROLES)[i%5],crit:i%7===0,fumble:i%11===0,low:i%13===0,night:1};const f=Flavor.of(l);return f&&typeof f.text==='string'&&f.text.length>2&&!f.text.includes('undefined');})`),true);
+});

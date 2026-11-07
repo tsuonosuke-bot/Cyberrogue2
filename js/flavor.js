@@ -120,7 +120,8 @@ const Flavor = (() => {
   const GOAL = ['手に取ると、思ったより重かった。', '回収完了。あとは帰るだけだ。', 'これで依頼の半分は終わった。'];
   const FIGHT = ['空気が変わった。', '銃声が、最初の一発を待っている。', '誰かが小さく舌打ちした。'];
   const CLEAR = ['硝煙が晴れていく。', '静かになった。', '倒れた影を跨いで、先へ進む。'];
-  const ABORT = ['ここまでだ。引き上げる。', '悔しいが、これ以上は無理だ。'];
+  const WIPE = ['通信機から聞こえるのは、雨音だけになった。', '誰も立っていない。', '最後の銃声のあと、誰も名乗らなかった。']; // 全員が倒れた行
+  const MISS = ['ここまでだった。', '手が届かなかった。', '依頼主には、悪い知らせを届けることになる。']; // 目標を取り逃した行
 
   /* 行の中身から決まる、0以上の整数 */
   const hash = (s) => { let h = 2166136261; for (const ch of s) h = Math.imul(h ^ ch.codePointAt(0), 16777619) >>> 0; return h; };
@@ -139,12 +140,13 @@ const Flavor = (() => {
       const voice = l.low ? SAY.low : (HOME[l.role] || []).includes(l.sk) ? SAY[l.role] : SAY_SK[l.sk];
       // 会心と大失敗はセリフを優先。ふつうの判定は4割ほどがセリフ、残りが描写
       const speak = voice && (o === 'crit' || o === 'fumble' || h % 10 < 4);
-      if (speak) { const s = pick(voice[o], h >> 4); if (s) return { say: true, text: `「${s}」` }; }
-      return { text: pick(DESC[l.sk][o] || DESC[l.sk][o === 'crit' ? 'ok' : 'ng'], h >> 4) };
+      if (speak) { const s = pick(voice[o], h >>> 4); if (s) return { say: true, text: `「${s}」` }; }
+      return { text: pick(DESC[l.sk][o] || DESC[l.sk][o === 'crit' ? 'ok' : 'ng'], h >>> 4) };
     }
     if (!l.who && l.kind === 'info' && l.text.includes('と交戦')) return { text: pick(FIGHT, h) };
     if (!l.who && l.kind === 'ok' && /を制圧|を倒した/.test(l.text)) return { text: pick(CLEAR, h) };
-    if (!l.who && l.kind === 'ng' && l.text.endsWith('撤退')) return { text: pick(ABORT, h) };
+    if (!l.who && l.kind === 'ng' && /全員が倒れた/.test(l.text)) return { text: pick(WIPE, h) };
+    if (!l.who && l.kind === 'ng' && /取り逃した|止められなかった|夜が明けかけた/.test(l.text)) return { text: pick(MISS, h) };
     return null;
   }
 

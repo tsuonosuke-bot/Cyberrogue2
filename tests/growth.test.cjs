@@ -45,9 +45,9 @@ test('gear that turns a failure into a success is credited by name',()=>{
 
 test('estimate reports per-skill odds and the main failure causes',()=>{
   const run=game();
-  run(`const job=addJob({id:'t2',title:'試験',client:'resident',target:null,rank:1,district:'harbor',tags:[],req:[],payout:1000,cred:2,heat:0,nights:1,routes:[{name:'試験',field:[S(30,'無理な潜入'),GT(40,'開かない扉'),_,_,O('目標')],net:N5()}]},false);
+  run(`const job=addJob({id:'t2',title:'試験',client:'resident',target:null,rank:1,district:'harbor',tags:[],req:[],payout:1000,cred:2,heat:0,nights:1,routes:[{name:'試験',field:[S(30,'無理な潜入'),GT(40,'開かない扉'),_,_,O('目標')],net:[_,_,_,_,I(40,'開かないデータ','data')]}]},false);
     const e=estimate(job,0,{field:[G.runners[0].id],support:[],net:[]},20);`);
   assert.equal(run('e.p'),0);
   assert.equal(run('e.skills.map(s=>s.sk).sort().join()'),['隠密','電子'].sort().join());
-  assert.match(run('e.causes[0].reason'),/開かない扉/);
+  assert.match(run('e.causes[0].reason'),/開かないデータ/); // 扉は開かなくても力ずくで破って進む
 });

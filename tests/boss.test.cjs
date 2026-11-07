@@ -133,8 +133,8 @@ test('電気屋: with the gang at +30, a talk turns the fight into a 1,000cr dea
 
 test('カナメ: not beaten in two rounds, she takes a goal; a successful chase and drive bring it back',()=>{
   const run=game({fixed:.5});
-  // 射撃 REF6+射撃6+d10(6)=18：カナメ（DV20）には届かず、追手（DV18）には届く
-  run(`const ctx=fight(2,[O('名簿'),BS('kaname','待ち伏せ'),E(15,'離脱')],{field:[who('solo',{REF:6,INT:10},{射撃:6,回避:20,知覚:10})],support:[who('driver',{REF:10},{運転:10,回避:20})],net:[]});`);
+  // 射撃 REF7+射撃6+d10(6)=19：カナメ（DV21）には届かず、追手（DV19）には届く（第1幕の上乗せ+1込み）
+  run(`const ctx=fight(2,[O('名簿'),BS('kaname','待ち伏せ'),E(15,'離脱')],{field:[who('solo',{REF:7,INT:10},{射撃:6,回避:20,知覚:10})],support:[who('driver',{REF:10},{運転:10,回避:20})],net:[]});`);
   assert.equal(run('said(ctx,"目標を1つ持ち去った")'),1);
   assert.equal(run('said(ctx,"カナメを攻撃")'),2);
   assert.equal(run('said(ctx,"取り返した")'),1);
@@ -145,9 +145,9 @@ test('鋼の番犬: armour halves each hit without a tech; the commander adds +1
   const shots=(tech)=>{
     const run=game({fixed:.5});
     run(`const sh=()=>who('solo',{REF:10},{射撃:10});const ctx=fight(3,[BS('hound','甲板')],{field:[sh(),sh()],support:${tech?"[who('tech')]":'[]'},net:[]});`);
-    return run('JSON.stringify([said(ctx,"鋼の番犬を攻撃"),ctx.bossDown,ctx.log.some(l=>l.text.includes("ミツカネの警備兵の攻撃")&&l.calc.endsWith("DV21"))])');
+    return run('JSON.stringify([said(ctx,"鋼の番犬を攻撃"),ctx.bossDown,ctx.log.some(l=>l.text.includes("ミツカネの警備兵の攻撃")&&l.calc.endsWith("DV22"))])');
   };
-  assert.equal(shots(false),JSON.stringify([5,true,true])); // 耐久5を1ずつ // 警備兵の攻撃20（第3幕の基準18＋装甲兵2）＋指揮官1
+  assert.equal(shots(false),JSON.stringify([5,true,true])); // 耐久5を1ずつ // 警備兵の攻撃21（第3幕の基準18＋装甲兵2＋第1幕の上乗せ1）＋指揮官1
   assert.equal(shots(true),JSON.stringify([3,true,true])); // テックがいれば1発で2
 });
 

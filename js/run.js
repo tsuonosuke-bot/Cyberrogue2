@@ -103,8 +103,9 @@ const Run = (() => {
   }
 
   /* 敵のDV・攻撃の上乗せ。幕のなかで夜が進むほど上がる（幕の頭+0、終わりごろ+2）。幕ごとの差は ACT_THREAT でならす。
-     大仕事の夜は+2に、BOSS_THREAT を足す。大仕事は一発勝負なので第1幕のボスは軽くし、第2幕・第3幕はふつうの依頼から重くする */
-  const ACT_THREAT = { 1: 0, 2: 0, 3: 3 };
+     大仕事の夜は+2に、BOSS_THREAT を足す。大仕事は一発勝負なので第1幕のボスは軽くし、第2幕・第3幕はふつうの依頼から重くする。
+     交戦は全滅するまで続く（3ラウンドで引かない）ぶん勝ちやすいので、幕ごとの上乗せを全体に+1している */
+  const ACT_THREAT = { 1: 1, 2: 1, 3: 4 };
   const BOSS_THREAT = { 1: 0, 2: 4, 3: 4 };
   const threat = () => ACT_THREAT[R().act] + Math.min(2, Math.floor((3 * (R().slot - 1)) / LAST)) + (R().slot === BOSS_SLOT ? BOSS_THREAT[R().act] - ((R().rooms || {}).terminal >= 3 ? 2 : 0) : 0);
 

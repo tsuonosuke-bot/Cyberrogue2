@@ -67,13 +67,13 @@ test('電脳: a passed ICE weakens the next fight at 4; black ICE backlash is ig
   assert.equal(run('said(c6,"逆流を受け流した")>=1 && n6.hp===99'),true);
 });
 
-test('持久: HP+5 and no wound penalty at 2; a fourth round at 4; the first death is only a collapse at 6',()=>{
+test('持久: HP+5 and no wound penalty at 2; HP+3 to the most hurt after each round at 4; the first death is only a collapse at 6',()=>{
   const {run}=game({fixed:.5});
   run(`var m=who('solo',fill('endure',2),{REF:10},{射撃:10}); m.hp=40; var ctx=mission([C(1,'見張り')],{field:[m],support:[],net:[]}); runMission(ctx);`);
   assert.equal(run('said(ctx,"全員HP+5（持久）")===1 && !ctx.log.find(l=>l.text.includes("を攻撃")).calc.includes("重傷")'),true);
-  // 4つで4ラウンド目まで粘る（当たらない射手と、硬い敵）
-  run(`var g4=who('solo',fill('endure',4),{REF:1},{射撃:0,回避:20}); var c4=mission([C(1,'壁','armored',40)],{field:[g4],support:[],net:[]}); runMission(c4);`);
-  assert.equal(run('c4.log.filter(l=>l.text.includes("を攻撃")).length'),4);
+  // 4つで、ラウンドが終わるたびにいちばん傷の深い人がHP+3（当たらない射手と、硬い敵。交戦は上限のラウンドまで続く）
+  run(`var g4=who('solo',fill('endure',4),{REF:1},{射撃:0,回避:20}); g4.hp=10; var c4=mission([C(1,'壁','armored',40)],{field:[g4],support:[],net:[]}); runMission(c4);`);
+  assert.equal(run('said(c4,"HP+3（持久）")>=1 && c4.log.filter(l=>l.text.includes("を攻撃")).length===COMBAT_ROUND_CAP'),true);
   run(`var dd=who("solo",fill("endure",6),{BODY:1}); var c6=mission([C(1,"x")],{field:[dd],support:[],net:[]}); dd.hp=0; deathSave(c6,dd);`);
   assert.equal(run('!dd.dead && dd.down && said(c6,"動けないだけで済んだ")===1'),true);
   run(`var e=who('solo',fill('endure',6),{BODY:1}); deathSave(c6,e);`); // 2人目からは普通の死亡セーブ

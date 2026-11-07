@@ -172,7 +172,7 @@ const avg = (a) => (a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.lengt
 const median = (a) => (a.length ? [...a].sort((x, y) => x - y)[a.length >> 1] : '-');
 function summary(bg, policy, st) {
   const clear = (st.end.clear || 0) + (st.end.publish || 0) + (st.end.bury || 0) + (st.end.sell || 0);
-  // 幕を越えた割合（挑み直しを含む）。目標は第1幕85%・第2幕65%・第3幕35%
+  // 幕を越えた割合（大仕事は一発勝負）。慎重な方針の目安は第1幕65〜75%・第2幕50〜65%・第3幕25〜30%
   const atLeast = (a) => st.reached.slice(a).reduce((x, y) => x + y, 0);
   const pass = [atLeast(2) / st.runs, atLeast(3) / (atLeast(2) || 1), clear / (atLeast(3) || 1)].map((x) => `${Math.round(x * 100)}%`).join(' / ');
   return {

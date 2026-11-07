@@ -2,10 +2,10 @@
 
 /* キャンペーン版（fixers-cut-save-v1）とは別の保存先。ラン中の保存は夜が明けるたびに上書きする */
 const SAVE_KEY = 'fixers-cut-run-v2'; // 1幕10夜の地図にしたときに上げた。前の版の遊びかけのランは読まない
-const RENT = { 1: 200, 2: 300, 3: 400 }; // 幕ごとの隠れ家代
-const LAZARUS_FEE = 100;
-/* ラザロの上位プラン（武装回収）。第2幕から。会費／夜、出動費、回収班の射撃の腕前（＋d10で敵のDVと比べる） */
-const LAZARUS_ARMED = { fee: 300, callout: 1500, aim: 15, act: 2 };
+/* ラザロの加入料（1人1回。上のプランに替えるときは差額だけ払う） */
+const LAZARUS_FEE = 600;
+/* ラザロの上位プラン（武装回収）。第2幕から。加入料、出動費、回収班の射撃の腕前（＋d10で敵のDVと比べる） */
+const LAZARUS_ARMED = { fee: 2000, callout: 1500, aim: 15, act: 2 };
 const ROSTER_MAX = 4;
 /* 隊の人数。臨時雇いは数えない */
 const crewSize = () => G.runners.filter((r) => !r.temp).length;
@@ -472,16 +472,21 @@ function best(list, sk) {
 }
 const hhmm = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
+/* 通信の1行。直前の判定（check）がこの人のものなら、技能・ロール・会心／大失敗を行に付ける。
+   通信はそれを使って、ダイスの代わりに描写とセリフを出す（ui.js の logLines、flavor.js） */
 function L(ctx, who, text, kind = '', calc = '', lane = ctx.lane) {
   if (ctx.sim) return;
   ctx.clock += rint(1, 4);
   // 暴走している人の行は、通信で別の色にする
   const mad = !!(who && ctx.combatState && (ctx.combatState.madNames || []).includes(who));
-  ctx.log.push({ night: ctx.night, ph: ctx.ph, t: hhmm(ctx.clock), who, text, kind, calc, lane, ...(mad ? { mad } : {}) });
+  const c = ctx.lastCheck; ctx.lastCheck = null;
+  const tag = calc && c && c.name === who ? { sk: c.sk, role: c.role, ...(c.crit ? { crit: true } : {}), ...(c.fumble ? { fumble: true } : {}), ...(c.low ? { low: true } : {}) } : {};
+  ctx.log.push({ night: ctx.night, ph: ctx.ph, t: hhmm(ctx.clock), who, text, kind, calc, lane, ...tag, ...(mad ? { mad } : {}) });
 }
-function sub(ctx, text, kind = '') {
+/* brief は、ダイスを隠しているときに text の代わりに出す短い文（数字の内訳を省く） */
+function sub(ctx, text, kind = '', brief = '') {
   if (ctx.sim) return;
-  ctx.log.push({ night: ctx.night, ph: ctx.ph, lane: ctx.lane, t: '', who: '', text, kind, calc: '', sub: true });
+  ctx.log.push({ night: ctx.night, ph: ctx.ph, lane: ctx.lane, t: '', who: '', text, kind, calc: '', sub: true, ...(brief ? { brief } : {}) });
 }
 function addHeat(ctx, corp, v) {
   if (!corp || !CLIENTS[corp] || CLIENTS[corp].kind !== 'corp') return;
@@ -523,6 +528,7 @@ function check(ctx, m, sk, dv) {
     c.who[m.name] = (c.who[m.name] || 0) + 1;
     return { ok, total, calc: '' };
   }
+  ctx.lastCheck = { name: m.name, role: m.role, sk, crit: r === 10, fumble: r === 1, low: m.humanity <= 30 };
   const xp = ctx.xp || (ctx.xp = {});
   (xp[m.id] ||= {})[sk] = (xp[m.id][sk] || 0) + 1;
   if (ok) {
@@ -545,9 +551,9 @@ function hit(ctx, m, dmg, pierce) {
   if (m.hp <= 0 && isMad(ctx, m) && typeOn(ctx, 'chrome', 6)) { m.hp = 1; sub(ctx, `${m.name}は倒れない（義体狂い）`, 'mad'); }
   sub(ctx, pierce
     ? `${m.name} 被弾 ${dmg}（防具無視）   HP ${m.hp}/${m.maxHp}`
-    : `被弾 ${dmg} − 防具 ${a} ＝ ${pen}   HP ${m.hp}/${m.maxHp}${note}`, pen > 0 ? 'ng' : '');
+    : `被弾 ${dmg} − 防具 ${a} ＝ ${pen}   HP ${m.hp}/${m.maxHp}${note}`, pen > 0 ? 'ng' : '',
+    pen > 0 ? `${m.name}が撃たれた。HP ${m.hp}/${m.maxHp}` : `${m.name}に当たったが、防具が止めた`);
   if (m.hp <= 0 && !m.down) deathSave(ctx, m);
-  if (!m.dead && ((ctx.team.field.includes(m) && m.hp < m.maxHp / 2) || (m.down && !m.rescued))) requestDecision(ctx, m.down ? '死亡セーブを生き延びた仲間が動けない' : '現場の仲間が重傷になった');
 }
 
 /* 黒ICEの逆流・敵ネットランナーの攻撃。防壁は無効化、ICE遮断フードは半減 */
@@ -569,7 +575,7 @@ function deathSave(ctx, m) {
     if (m.heart && r >= need - m.heart) credit(ctx, m, CYBER[m.heart === 3 ? 'heart2' : 'heart'].name);
     const surgeon = ctx.all.find((x) => x !== m && alive(x) && x.perk === 'surgeon');
     if (surgeon && r >= need - 2) credit(ctx, surgeon, ROLES.med.perk.name);
-    L(ctx, m.name, `死亡セーブ d10(${r}) ＜ BODY ${m.st.BODY}${bonus ? `＋${bonus}` : ''}　生きているが動けない`, 'warn');
+    L(ctx, m.name, '死亡セーブ　生きているが動けない', 'warn', `d10(${r}) ＜ BODY ${m.st.BODY}${bonus ? `＋${bonus}` : ''}`);
     if (!isMad(ctx, m)) armedRescue(ctx, m);
     return;
   }
@@ -577,23 +583,23 @@ function deathSave(ctx, m) {
   if (m.lazarus && !isMad(ctx, m)) {
     if (armedRescue(ctx, m)) return;
     m.rescued = true; m.hp = 1; ctx.lazarus.push(m.id);
-    L(ctx, m.name, `死亡セーブ d10(${r}) 失敗。ラザロ救急隊が回収（回収費は報酬額の30%）`, 'warn');
+    L(ctx, m.name, '死亡セーブ失敗。ラザロ救急隊が回収（回収費は報酬額の30%）', 'warn', `d10(${r}) ≧ ${need}`);
     return;
   }
   // 診療室2段：各幕に1回、死ぬはずの人が重傷で済む（見積もりでは使った扱いにしない）
   if (G && G.run && (G.run.rooms || {}).clinic >= 2 && G.run.clinicUsed !== G.run.act) {
     if (!ctx.sim) G.run.clinicUsed = G.run.act;
     m.hp = 0;
-    L(ctx, m.name, `死亡セーブ d10(${r}) ≧ ${need}。隠れ家の診療室が手配した担架で、命だけはつないだ`, 'warn');
+    L(ctx, m.name, '死亡セーブ失敗。隠れ家の診療室が手配した担架で、命だけはつないだ', 'warn', `d10(${r}) ≧ ${need}`);
     return;
   }
   if (typeOn(ctx, 'endure', 6) && !ctx.endured) {
     ctx.endured = true; m.hp = 0;
-    L(ctx, m.name, `死亡セーブ d10(${r}) ≧ ${need}。それでも息がある。動けないだけで済んだ（持久）`, 'warn');
+    L(ctx, m.name, '死亡セーブ失敗。それでも息がある。動けないだけで済んだ（持久）', 'warn', `d10(${r}) ≧ ${need}`);
     return;
   }
   m.dead = true;
-  L(ctx, m.name, `死亡セーブ d10(${r}) ≧ ${need}　応答なし${m.lazarus ? '（暴走中はラザロの対象外）' : ''}`, 'dead');
+  L(ctx, m.name, `死亡セーブ失敗　応答なし${m.lazarus ? '（暴走中はラザロの対象外）' : ''}`, 'dead', `d10(${r}) ≧ ${need}`);
 }
 
 const isMad = (ctx, m) => !!(ctx.combatState && (ctx.combatState.mad || []).includes(m.id));
@@ -628,12 +634,12 @@ function psychosis(ctx, s, list) {
       const r = d(10);
       if (r > 2 || cone('ironDiscipline')) continue;
       s.shaken.push(m.id);
-      L(ctx, m.name, `動揺している（d10で${r}）。この交戦は射撃・回避−2`, 'warn');
+      L(ctx, m.name, '動揺している。この交戦は射撃・回避−2', 'warn', `d10(${r}) ≦ 2`);
     } else if (z === 'sign') {
       const r = d(10), need = Math.ceil((16 - m.humanity) / 4);
       if (r > need) continue;
       s.mad.push(m.id); s.madNames.push(m.name);
-      L(ctx, m.name, `発作 d10(${r}) ≦ ${need}。暴走した。射撃+2で2回撃つが、もう指示は届かない`, 'mad');
+      L(ctx, m.name, '発作。暴走した。射撃+2で2回撃つが、もう指示は届かない', 'mad', `d10(${r}) ≦ ${need}`);
     }
   }
 }
@@ -692,11 +698,16 @@ function makeFoes(ctx, type, n, name, dv) {
     dice: type === 'swarm' ? 2 : E.dice, plus: E.plus,
   }));
 }
-/* 幕のボス（RUN_BOSSES）と護衛。ボスが先頭、指揮官は最後に並ぶ（見抜けば先頭へ）。ボスの耐久は挑み直しても戻らない */
+/* ボスの耐久（ネットのボスは黒ICEの層）。端末室3段で−1、危険度5で+1 */
+function bossHits(B) {
+  const run = G && G.run;
+  return Math.max(1, B.hits - (run && (run.rooms || {}).terminal >= 3 ? 1 : 0) + (run && run.danger >= 5 ? 1 : 0));
+}
+/* 幕のボス（RUN_BOSSES）と護衛。ボスが先頭、指揮官は最後に並ぶ（見抜けば先頭へ） */
 function bossFoes(ctx, B) {
   const E = RANK_ENEMY[ctx.rank];
   const T = ctx.threat || 0;
-  const boss = { name: B.name, boss: true, hits: ctx.bossLeft ?? Math.max(1, B.hits - (G && G.run && (G.run.rooms || {}).terminal >= 3 ? 1 : 0)), dv: E.dv + 2 + T, atk: E.atk + 2 + T + (B.drug || 0), dice: E.dice, plus: E.plus + 2,
+  const boss = { name: B.name, boss: true, hits: bossHits(B), dv: E.dv + 2 + T, atk: E.atk + 2 + T + (B.drug || 0), dice: E.dice, plus: E.plus + 2,
     attacks: B.attacks || 1, armored: !!B.armored, hidden: !!B.hidden, noShoot: !!B.noShoot };
   const foes = [boss, ...(B.escort || []).flatMap((e) => makeFoes(ctx, e.type, e.n, e.name))];
   if (B.commander) foes.push({ name: `${B.commander.name}（指揮官）`, commander: true, hits: 2, dv: E.dv, atk: E.atk, dice: E.dice, plus: E.plus });
@@ -864,10 +875,9 @@ function combat(ctx, n, label, o = {}) {
   }
 }
 
-/* ネットのボス（保守主任）。黒ICEを1層ずつ破り、抜けなければ現場から回線を物理的に切る。破った層は挑み直しても戻らない */
+/* ネットのボス（保守主任）。黒ICEを1層ずつ破り、抜けなければ現場から回線を物理的に切る */
 function netBoss(ctx, p, B) {
-  // 端末室3段で、ボスの耐久（ネットのボスは黒ICEの層）が1つ少ない
-  let left = ctx.bossLeft ?? Math.max(1, B.hits - (G && G.run && (G.run.rooms || {}).terminal >= 3 ? 1 : 0));
+  let left = bossHits(B);
   const nr = ctx.team.net.find(alive);
   L(ctx, '', `${p.l}：${B.name}の黒ICE（残り${left}層）`, 'info', '', 'net');
   if (!nr) L(ctx, '', 'ネットの担当がいない。回線を物理的に切るしかない', 'warn', '', 'net');
@@ -926,7 +936,6 @@ function fieldPhase(ctx, p) {
       L(ctx, m.name, p.l, c.ok ? 'ok' : 'ng', c.calc);
       if (!c.ok) {
         addHeat(ctx, tgt, 8); ctx.mods.extraEnemy++;
-        requestDecision(ctx, '罠の警報が鳴った');
         sub(ctx, `警報${tgt ? `　${CLIENTS[tgt].name}のヒート +8` : ''}　次の交戦で敵+1`, 'ng');
         hit(ctx, m, roll(2, 6), false);
       }
@@ -1026,23 +1035,18 @@ function netFail(ctx, p) {
   switch (p.fx) {
     case 'cam': ctx.mods.extraEnemy++; sub(ctx, 'カメラに捕捉された。次の交戦で敵+1', 'ng'); break;
     case 'door': ctx.mods.gateUp += 4; sub(ctx, '扉の制御を奪えない。次の扉のDV+4', 'ng'); break;
-    case 'alarm': requestDecision(ctx, 'ネットの警報が鳴った'); ctx.mods.chase = true; sub(ctx, '警報が作動。逃走は追撃戦になる', 'ng'); break;
+    case 'alarm': ctx.mods.chase = true; sub(ctx, '警報が作動。逃走は追撃戦になる', 'ng'); break;
     case 'trace': addHeat(ctx, tgt, 6); sub(ctx, `逆探知された${tgt ? `　${CLIENTS[tgt].short}のヒート +6` : ''}`, 'ng'); break;
     case 'data': abort(ctx, `${p.l}を抜けず撤退`); break;
   }
 }
 
-// Interactive contexts contain only serializable data; no future rolls occur while waiting.
-function requestDecision(ctx, reason) {
-  if (ctx.combatState && (ctx.combatState.mad || []).length) return; // 暴走していると、重傷や警報でも止められない
-  if (ctx.interactive && !ctx.aborted && ctx.decisions < 2) ctx.alert = ctx.alert || reason;
-}
 function missionContext(job, routeIdx, team, sim, interactive = false) {
   World.prepareJob(job);
   const route = job.routes[routeIdx];
   const ctx = { job, routeIdx, rank: job.rank, threat: G.run ? Run.threat() : 0, team, sim, interactive,
     log: [], heat: {}, lazarus: [], mods: {extraEnemy:0, gateUp:0, chase:false, atkDown:0},
-    rewardMult:1, aborted:false, reason:'', goals:0, need:0, night:1, clock:1320, checks:{}, xp:{}, credit:{}, costs:[], bossLeft:job.bossLeft,
+    rewardMult:1, aborted:false, reason:'', goals:0, need:0, night:1, clock:1320, checks:{}, xp:{}, credit:{}, costs:[], bossLeft:null,
     humLoss:{}, madKills:{}, custody:[], armed:[], maxtac:null,
     ph:0, lane:'net', stage:0, decisions:0, alert:null, waiting:false };
   ctx.all = teamIds(team);
@@ -1087,8 +1091,8 @@ function runMission(ctx, nightLimit = Infinity) {
   ctx.finished = true;
   return ctx;
 }
-/* 暴走した人が3体倒した依頼では、次の交戦の前に鎮圧班が到着する。続行／撤退と同じように止まって、
-   引き渡す・かばう・撤退するを選ぶ（見積もりでは引き渡す）。この夜のフェーズを処理したら true */
+/* 暴走した人が3体倒した依頼では、次の交戦の前に鎮圧班が到着する。依頼はそこで止まって、
+   引き渡す・かばうを選ぶ（見積もりでは引き渡す）。この夜のフェーズを処理したら true */
 const FIGHTS = (p) => p.t === 'combat' || (p.t === 'boss' && !(p.boss && RUN_BOSSES[p.boss].layers));
 function squadArrives(ctx, p) {
   const mt = ctx.maxtac;
@@ -1105,7 +1109,6 @@ function squadArrives(ctx, p) {
     mt.choice = 'handover';
   }
   mt.done = true;
-  if (mt.choice === 'retreat') { abort(ctx, '鎮圧班を前に、全員で引いた'); return true; }
   if (mt.choice === 'handover') { handOver(ctx, mt.id, '鎮圧班に引き渡した。連れていかれた'); return false; }
   // かばう：鎮圧班と交戦し、勝てば予定の交戦に進む
   ctx.afterCombat = 'phase';
@@ -1116,9 +1119,10 @@ function squadArrives(ctx, p) {
 function resolveMission(job, routeIdx, team, sim) {
   return runMission(missionContext(job,routeIdx,team,sim));
 }
-/* proceed は続行なら true、撤退なら false。鎮圧班が来たときは 'handover'・'protect'・'retreat' */
-const SQUAD_CHOICE = { handover: '引き渡す', protect: 'かばう', retreat: '撤退する' };
-function missionDecision(uid, proceed) {
+/* 依頼が止まるのは鎮圧班が来たときだけ。choice は 'handover'・'protect'。
+   それ以外で止まっている保存データ（続行／撤退があった版）は、続行として進める */
+const SQUAD_CHOICE = { handover: '引き渡す', protect: 'かばう' };
+function missionDecision(uid, choice) {
   const ms = G.missions.find(m=>m.uid===uid);
   if (!ms || !ms.progress || !ms.progress.waiting) return;
   const ctx = ms.progress;
@@ -1127,13 +1131,9 @@ function missionDecision(uid, proceed) {
   ctx.waiting = false; ctx.alert = null;
   if (ctx.decision === 'maxtac') {
     ctx.decision = null;
-    ctx.maxtac.choice = SQUAD_CHOICE[proceed] ? proceed : 'handover';
+    ctx.maxtac.choice = SQUAD_CHOICE[choice] ? choice : 'handover';
     L(ctx, '', `フィクサーの指示：${SQUAD_CHOICE[ctx.maxtac.choice]}`, 'warn');
-    save();
-    return;
   }
-  L(ctx,'',proceed ? 'フィクサーの指示：続行' : 'フィクサーの指示：撤退', 'warn');
-  if (!proceed) { abort(ctx,'フィクサーの判断で撤退'); ctx.combatState = null; }
   save();
 }
 
@@ -1268,14 +1268,6 @@ function interlude(out) {
 
 /* ───────── 夜の終わり ───────── */
 
-function upkeepItems() {
-  const items = [['隠れ家代', RENT[G.run.act]]];
-  const laz = G.runners.filter((r) => r.lazarus && r.lazarus !== 'armed').length, armed = G.runners.filter((r) => r.lazarus === 'armed').length;
-  if (laz) items.push([`ラザロ会費 ×${laz}`, laz * LAZARUS_FEE]);
-  if (armed) items.push([`ラザロ武装回収 ×${armed}`, armed * LAZARUS_ARMED.fee]);
-  return items;
-}
-
 function desert(r, out) {
   out.deserted.push(clone(r));
   leaveRunner(r);
@@ -1325,7 +1317,7 @@ function raid(corp, out) {
 function endNight() {
   if (G.awaitChoice) return null; // 分岐を選ぶまで夜は明けない
   G.nightInProgress = true;
-  const out = { night: G.night, comms: [], settle: [], upkeep: [], upkeepTotal: 0, events: [], story: [], touched: {}, heat: [], deserted: [] };
+  const out = { night: G.night, comms: [], settle: [], events: [], story: [], touched: {}, heat: [], deserted: [] };
   for (const ms of G.missions) {
     if (ms.result) continue;
     const ctx = ms.progress || (ms.progress = missionContext(ms.job, ms.routeIdx, snapTeam(ms.team), false, true));
@@ -1367,12 +1359,7 @@ function endNight() {
   }
   G.missions = G.missions.filter((m) => !done.includes(m));
 
-  // 2. 固定費
-  out.upkeep = upkeepItems();
-  out.upkeepTotal = out.upkeep.reduce((a, b) => a + b[1], 0);
-  G.money -= out.upkeepTotal;
-
-  // 3. ランナーの夜
+  // 2. ランナーの夜
   for (const r of G.runners.slice()) {
     if (r.status === 'therapy') {
       r.therapy--;
@@ -1387,7 +1374,7 @@ function endNight() {
     if (r.humanity <= 0) { desert(r, out); continue; }
     if (r.humanity > 15 && r.humanity <= 18) out.events.push({ kind: 'warn', text: `${r.name}の様子がおかしい（人間性${r.humanity}）。15を切ると、交戦のたびに暴走しかねない` });
   }
-  // 4. ヒートと襲撃
+  // 3. ヒートと襲撃
   // 手を出した企業は冷めない。heatPerNight のある章では全社が毎夜上がる
   const surge = chapter().heatPerNight || 0;
   for (const c of CORPS) {
@@ -1398,21 +1385,21 @@ function endNight() {
   out.heat = CORPS.map((c) => [c, G.heat[c], G.heat[c] - heatBefore[c]]);
   interlude(out);
 
-  // 5. 赤字判定
+  // 4. 赤字判定
   if (G.money < 0) {
     G.negStreak++;
     out.events.push({ kind: 'ng', text: `所持金がマイナス。${G.negStreak}夜目（3夜続くと廃業）` });
   } else G.negStreak = 0;
   if (G.negStreak >= 3) G.ended = { type: 'bankrupt' };
 
-  // 6. 翌夜の準備
+  // 5. 翌夜の準備
   G.nightInProgress = false;
   G.night++;
   World.nextNight();
   Run.nextNight(out);
   G.archive.unshift({ night: out.night, comms: out.comms });
   G.archive = G.archive.slice(0, 15);
-  G.lastReport = { night: out.night, upkeepTotal: out.upkeepTotal };
+  G.lastReport = { night: out.night };
   save();
   return out;
 }

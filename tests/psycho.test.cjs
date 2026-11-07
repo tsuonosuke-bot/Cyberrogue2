@@ -61,16 +61,6 @@ test('暴走: +2 and two shots a round, certain heat per kill, humanity −2 aft
   assert.equal(run('ctx.maxtac && ctx.maxtac.id===m.id'),true); // 3体倒したので鎮圧班が向かう
 });
 
-test('暴走: injuries and alarms cannot stop the fight — no continue/retreat prompt',()=>{
-  const prompt=(hum)=>{
-    const {run}=game({fixed:.25});
-    run(`const m=who('solo',${hum},{REF:1});m.maxHp=40;m.hp=40;const ctx=mission([C(3,'見張り')],{field:[m],support:[],net:[]},true);runMission(ctx);`);
-    return run('!!ctx.alert');
-  };
-  assert.equal(prompt(5),false);
-  assert.equal(prompt(50),true);
-});
-
 test('暴走: berserk runners are outside the Lazarus contract',()=>{
   const {run}=game({fixed:.25});
   run(`const m=who('solo',5,{BODY:1});m.lazarus='basic';m.hp=0;const ctx=mission([C(1,'x')],{field:[m],support:[],net:[]});`);
@@ -102,11 +92,10 @@ test('鎮圧班: protect — fight the squad (the berserk runner is hunted first
   assert.equal(run('said(ctx,"鎮圧班と交戦")===1 && said(ctx,"鎮圧班を退けた")===1 && ctx.wanted && ctx.success && !ctx.custody.length'),true);
 });
 
-test('鎮圧班: retreat — everyone comes home and the job fails',()=>{
+test('鎮圧班: the choice is hand over or protect only; anything else hands over',()=>{
   const {run}=game({fixed:.25});
-  run(`${SETUP} ctx.waiting=false;ctx.alert=null;ctx.decision=null;ctx.maxtac.choice='retreat';runMission(ctx);`);
-  assert.equal(run('ctx.aborted && ctx.reason'),'鎮圧班を前に、全員で引いた');
-  assert.equal(run('!ctx.custody.length && !mad.dead'),true);
+  run(`${SETUP} const ms={uid:1,progress:ctx};G.missions=[ms];missionDecision(1,'retreat');`);
+  assert.equal(run('ctx.maxtac.choice'),'handover');
 });
 
 test('鎮圧班: estimates hand the runner over without asking',()=>{
@@ -136,13 +125,16 @@ test('Lazarus armed retrieval: once per job, shoots one round, carries the runne
   assert.equal(run('k.rescued && k.hp===50 && !k.dead'),true); // 生き延びて動けないときも運び出す
 });
 
-test('Lazarus plans: armed from act 2, priced per night, charged per callout',()=>{
+test('Lazarus plans: armed from act 2, a one-time fee (the difference when upgrading), charged per callout',()=>{
   const {run}=game();
-  run('const r=G.runners[0];');
+  run('const r=G.runners[0];G.money=10000;');
   assert.equal(run('Run.setLazarus(r,"armed")'),'武装回収は第2幕から入れます');
+  assert.equal(run('Run.setLazarus(r,"basic")===null && G.money'),10000-600);
   run('G.run.act=2;');
-  assert.equal(run('Run.setLazarus(r,"armed")===null && Run.setLazarus(G.runners[1],"basic")===null'),true);
-  assert.equal(run('JSON.stringify(upkeepItems().filter(x=>x[0].startsWith("ラザロ")))'),JSON.stringify([['ラザロ会費 ×1',100],['ラザロ武装回収 ×1',300]]));
+  assert.equal(run('Run.setLazarus(r,"armed")===null && G.money'),10000-2000);
+  assert.equal(run('Run.setLazarus(r,null)===null && Run.setLazarus(r,"basic")===null && G.money'),10000-2000-600);
+  assert.equal(run('G.money=0;Run.setLazarus(G.runners[1],"basic")'),'所持金が足りません');
+  run('G.money=10000;');
   run(`const j=addJob({id:'t',title:'試験',client:'resident',target:null,rank:2,district:'harbor',tags:[],req:[],payout:1000,cred:0,heat:0,nights:1,routes:[{name:'x',field:[_],net:[_]}]},true);G.board=[];const m0=G.money;
     const s=settle({job:j,routeIdx:0,result:{success:false,reason:'x',members:[{id:r.id,hp:20,armor:0,kills:0,rescued:true,down:true}],heat:{},lazarus:[],armed:[r.id],rewardMult:1,log:[],xp:{},credit:{}}},{story:[],touched:{}});`);
   assert.equal(run('m0-G.money'),1500+600);

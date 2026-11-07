@@ -139,12 +139,10 @@ function hud() {
 }
 
 function dock() {
-  const up = upkeepItems().reduce((a, b) => a + b[1], 0);
-  const after = G.money - up;
   return `<div class="dock"><div class="dock-in">
     <div class="proj">
-      <span class="label">夜明けの見込み</span>
-      <span class="num">${cr(G.money)} − ${fmt(up)} ＝ <b class="${after < 0 ? 'pink' : ''}">${cr(after)}</b></span>
+      <span class="label">所持金</span>
+      <span class="num"><b class="${G.money < 0 ? 'pink' : ''}">${cr(G.money)}</b></span>
       <small>${!Run.canEndNight() ? '地区マップで行き先をタップすると出発' : G.missions.length ? `派遣中${G.missions.length}件の報酬は含みません` : '今夜は誰も出ていません'}</small>
     </div>
     ${dockButton()}
@@ -155,7 +153,7 @@ function dock() {
 function dockButton() {
   const tab = Run.tonightTab();
   if (['scout', 'doc', 'shop'].includes(tab)) return '<button class="primary big" data-act="night">用事を済ませて夜を明かす</button>';
-  if (tab === 'board' && G.board.length) return '<button class="big" data-act="night">送り出さずに夜を明かす</button>';
+  if (tab === 'board' && G.board.length && !(G.run.tonight && G.run.tonight.type === 'boss')) return '<button class="big" data-act="night">送り出さずに夜を明かす</button>';
   return '';
 }
 
@@ -179,7 +177,7 @@ const bossEscorts = (B) => (B.layers ? `黒ICE ${B.layers.length}層` : [...(B.e
 function bossBox(job) {
   const B = job.boss && RUN_BOSSES[job.boss];
   if (!B) return '';
-  const left = job.bossLeft ?? B.hits;
+  const left = bossHits(B);
   const dropName = B.drop ? (B.drop.cyber ? CYBER[B.drop.cyber] : GEAR[B.drop.gear]).name : '';
   return `<section class="bossbox">${bossPortrait(job.boss, 'lg')}<div class="bossin">
     <div class="label">BOSS</div><h3>${B.name}</h3><p>${B.who}</p>
@@ -194,11 +192,11 @@ function bossBox(job) {
 /* 今夜選べる行き先（詳しい版）。i は Run.options() の中の番号 */
 function mapNode(n, i) {
   const run = G.run, info = Run.nodeInfo(n);
-  const tags = [n.type === 'hard' ? '<span class="chip p">危険</span>' : '', n.type === 'boss' && run.retried ? '<span class="chip p">再挑戦</span>' : '',
+  const tags = [n.type === 'hard' ? '<span class="chip p">危険</span>' : '', 
     info.until ? `<span class="chip p">あと${info.until - G.night + 1}夜</span>` : ''].join('');
   return `<button class="node n-${n.type}" data-act="go" data-v="${i}">
     <span class="mk" aria-hidden="true">${info.mark}</span>
-    <span class="nb"><b>${info.name}</b>${tags}${info.boss ? `<span class="nboss">${bossPortrait(info.boss, 'sm')}<span><b class="pink">${RUN_BOSSES[info.boss].name}</b><small class="num dim"> 耐久${info.bossLeft ?? RUN_BOSSES[info.boss].hits}</small>${RUN_BOSSES[info.boss].resist ? `<small class="pink"> ${TYPES[RUN_BOSSES[info.boss].resist].name}の型が効かない</small>` : ''}</span></span>` : ''}${info.title ? `<span class="nt">${esc(info.title)}</span>` : ''}${nodeMeta(info)}</span>
+    <span class="nb"><b>${info.name}</b>${tags}${info.boss ? `<span class="nboss">${bossPortrait(info.boss, 'sm')}<span><b class="pink">${RUN_BOSSES[info.boss].name}</b><small class="num dim"> 耐久${bossHits(RUN_BOSSES[info.boss])}</small>${RUN_BOSSES[info.boss].resist ? `<small class="pink"> ${TYPES[RUN_BOSSES[info.boss].resist].name}の型が効かない</small>` : ''}</span></span>` : ''}${info.title ? `<span class="nt">${esc(info.title)}</span>` : ''}${nodeMeta(info)}</span>
   </button>`;
 }
 
@@ -256,7 +254,6 @@ function tonightPanel() {
 function viewHome() {
   const run = G.run;
   const acts = [1, 2, 3].map((a) => `<li class="${a < run.act ? 'done' : a === run.act ? 'cur' : ''}"><span class="label">${Run.ACTS[a].name}</span><b>${Run.ACTS[a].place}</b></li>`).join('');
-  const up = upkeepItems();
   const missions = G.missions.length
     ? G.missions.map((m) => {
       const k = G.night - m.start + 1;
@@ -268,7 +265,7 @@ function viewHome() {
       <li>1ランは<b>3幕・30夜</b>。毎夜、<b>行き先を1つタップ</b>する。地図は線でつながった先にしか進めないので、先の夜まで見て道を選ぶ</li>
       <li>依頼は編成して送り出すと夜が明ける。路地裏・闇医者・古物屋は、用事を済ませたら下のボタンで夜を明かす</li>
       <li><b>依頼</b>で派遣して稼ぐ。<b>路地裏</b>か、隊の画面の<b>顔見せ</b>（夜を使わないが契約金がかかる）で雇い、<b>闇医者</b>と<b>古物屋</b>で強くし、<b>隠れ家</b>で立て直す</li>
-      <li>各幕の10夜目は<b>大仕事</b>。失敗しても次の夜に一度だけ挑み直せる。2度目も失敗するとランは終わる</li>
+      <li>各幕の10夜目は<b>大仕事</b>。一発勝負で、失敗するとランは終わる。9夜目は準備の夜で、隠れ家か闇医者に必ず寄れる</li>
       <li>第1幕の大仕事には<b>ネットランナー</b>が要る。最初の隊には必ず1人いる。失ったら路地裏か顔見せで探すこと</li>
       <li>所持金が3夜続けてマイナス、または隊が全滅しても終わり</li>
     </ol></section>` : '';
@@ -284,10 +281,7 @@ function viewHome() {
   ${coneList()}
   ${World.homeHtml()}
   <div class="cols">
-    <section class="panel"><h3>派遣中</h3><ul class="mlist">${missions}</ul></section>
-    <section class="panel"><h3 class="pink">毎晩、確実に出ていく</h3>
-      <dl class="ledger">${up.map(([l, v]) => `<div><dt>${esc(l)}</dt><dd class="num">${fmt(v)}</dd></div>`).join('')}
-      <div class="tot"><dt>合計</dt><dd class="num">${fmt(up.reduce((a, b) => a + b[1], 0))}cr</dd></div></dl>
+    <section class="panel"><h3>派遣中</h3><ul class="mlist">${missions}</ul>
       ${G.vouchers.intel ? `<p class="dim">手持ちの券：情報無料 ×${G.vouchers.intel}</p>` : ''}
     </section>
     <section class="panel hint"><h3>ヒート</h3>
@@ -418,8 +412,8 @@ function stepHelp() {
       <li>被弾のダメージから防具を引いた分だけHPが減る。防具を上回る傷を受けると防具が1減る</li>
       <li>HPが0になると死亡セーブ。d10が<b>BODY＋補正</b>未満なら生き延びるが、その依頼ではもう動けない</li>
       <li>死亡セーブの補正：メドテックの同行＋1、${ROLES.med.perk.name}＋2、人工心臓＋2（弐は＋3）</li>
-      <li>失敗すると死亡。救急サブスク「ラザロ」の加入者は回収される（回収費は報酬額の30%）</li>
-      <li>上位の武装回収（第${LAZARUS_ARMED.act}幕から、${LAZARUS_ARMED.fee}cr/夜）は、死亡セーブに失敗したときか、生き延びて動けなくなったときに出動する。回収班が1ラウンドだけ敵を撃ち、本人をHP半分で運び出す。出動費${fmt(LAZARUS_ARMED.callout)}cr＋報酬額の30%。1つの依頼で1回まで</li>
+      <li>失敗すると死亡。救急サービス「ラザロ」の加入者は回収される（回収費は報酬額の30%）</li>
+      <li>上位の武装回収（第${LAZARUS_ARMED.act}幕から、加入料${fmt(LAZARUS_ARMED.fee)}cr）は、死亡セーブに失敗したときか、生き延びて動けなくなったときに出動する。回収班が1ラウンドだけ敵を撃ち、本人をHP半分で運び出す。出動費${fmt(LAZARUS_ARMED.callout)}cr＋報酬額の30%。1つの依頼で1回まで</li>
       <li>休息：全員がd6+2回復。メドテックがいれば医療の半分を足す。${CYBER.medkit.name}を入れた本人は＋5</li>
     </ul>
 
@@ -428,16 +422,16 @@ function stepHelp() {
       <li>人間性は義体で削れる。上限はEMP×10（資質で変わる）。31以上は<b>安定</b></li>
       <li><b>不安定（16〜30）</b>：交戦の始めにd10で1が出ると<b>動揺</b>し、その交戦は射撃・回避−2</li>
       <li><b>兆候（1〜15）</b>：交戦の始めに発作の判定。d10が (16−人間性)÷4 の切り上げ以下なら<b>暴走</b>（人間性12〜15で10%、8〜11で20%、4〜7で30%、1〜3で40%）</li>
-      <li><b class="pink">暴走</b>：その交戦のあいだ射撃+2で2回撃つ（二連射とは重ならない）。続行／撤退の判断は出ない。敵を倒すたびに標的の企業のヒート+4（テーザーでも防げない）。交戦が終わると人間性−2。ラザロの対象外。通信では別の色で出る</li>
-      <li>暴走した人が同じ依頼で3体倒すと、次の交戦の前に<b>市警の鎮圧班</b>が来る。引き渡す（その人はランから抜ける）・かばう（鎮圧班と交戦。勝てばこの幕のあいだ全依頼の敵+1）・撤退する（依頼は失敗）から選ぶ</li>
+      <li><b class="pink">暴走</b>：その交戦のあいだ射撃+2で2回撃つ（二連射とは重ならない）。敵を倒すたびに標的の企業のヒート+4（テーザーでも防げない）。交戦が終わると人間性−2。ラザロの対象外。通信では別の色で出る</li>
+      <li>暴走した人が同じ依頼で3体倒すと、次の交戦の前に<b>市警の鎮圧班</b>が来る。引き渡す（その人はランから抜ける）・かばう（鎮圧班と交戦。勝てばこの幕のあいだ全依頼の敵+1）から選ぶ</li>
       <li><b>喪失（0）</b>：隠れ家から消える。5夜のうちに地区マップの「元部下」で止めないと、鎮圧班が片付ける。元部下との交戦で3ラウンド以内に倒しきれなくても、鎮圧班が割り込んで片付ける（依頼は失敗、ヒートは上がらない）</li>
       <li>戻し方：隠れ家に寄ると全員+5。闇医者のセラピーは1人+15（${fmt(THERAPY_COST)}cr、次の1夜は出せない）</li>
     </ul>
 
-    <h3>続行と撤退</h3>
+    <h3>送り出したあと</h3>
     <ul>
-      <li>現場の誰かが重傷（HP半分未満）になったとき、死亡セーブを生き延びたとき、警報が鳴ったときに、続行か撤退かを選べる。1件の派遣で2回まで</li>
-      <li>撤退は報酬なしの失敗扱い。続行すると、済んだ判定は振り直さない</li>
+      <li>送り出した依頼は、最後まで判定する。途中で引き返させることはできない（交戦を倒しきれない・扉が開かないなど、現場が自分で引くことはある）</li>
+      <li>大仕事は一発勝負。失敗するとランは終わる。9夜目は準備の夜で、隠れ家か闇医者に必ず寄れる</li>
     </ul>
   </div>
   <div class="mact"><button class="primary" data-act="closehelp">閉じる</button></div>`;
@@ -713,11 +707,11 @@ function viewDoc() {
           <h3>処置</h3>
           <div class="carerow"><span>治療（HPを全快）</span><button data-act="treat" data-r="${r.id}" ${!tc || r.status !== 'idle' ? 'disabled' : ''}>${tc ? cr(tc) : '不要'}</button></div>
           <div class="carerow"><span>セラピー（人間性+15、次の${THERAPY_NIGHTS}夜は出せない）</span><button data-act="therapy" data-r="${r.id}" ${r.status !== 'idle' || r.humanity >= maxHum(r) ? 'disabled' : ''}>${cr(THERAPY_COST)}</button></div>
-          <div class="carerow laz"><span>救急サブスク「ラザロ」<small class="dim">基本：死亡セーブに失敗したらHP1で回収（回収費は報酬額の30%）。武装回収：倒れたら回収班が1ラウンド撃ち、HP半分で運び出す（出動費${fmt(LAZARUS_ARMED.callout)}cr＋30%、1つの依頼で1回）。暴走中は対象外</small></span>
+          <div class="carerow laz"><span>救急サービス「ラザロ」<small class="dim">加入料はその場で1回だけ（上のプランへは差額。やめても戻らない）。基本：死亡セーブに失敗したらHP1で回収（回収費は報酬額の30%）。武装回収：倒れたら回収班が1ラウンド撃ち、HP半分で運び出す（出動費${fmt(LAZARUS_ARMED.callout)}cr＋30%、1つの依頼で1回）。暴走中は対象外</small></span>
             <div class="seg" role="group" aria-label="ラザロのプラン">
               <button data-act="lazarus" data-r="${r.id}" data-v="" aria-pressed="${!r.lazarus}">なし</button>
-              <button data-act="lazarus" data-r="${r.id}" data-v="basic" aria-pressed="${!!r.lazarus && r.lazarus !== 'armed'}">基本 ${LAZARUS_FEE}cr/夜</button>
-              <button data-act="lazarus" data-r="${r.id}" data-v="armed" aria-pressed="${r.lazarus === 'armed'}" ${G.run.act < LAZARUS_ARMED.act && r.lazarus !== 'armed' ? `disabled title="第${LAZARUS_ARMED.act}幕から"` : ''}>武装回収 ${LAZARUS_ARMED.fee}cr/夜${G.run.act < LAZARUS_ARMED.act ? `（第${LAZARUS_ARMED.act}幕から）` : ''}</button>
+              <button data-act="lazarus" data-r="${r.id}" data-v="basic" aria-pressed="${!!r.lazarus && r.lazarus !== 'armed'}" ${Run.lazarusFee(r, 'basic') > G.money ? 'disabled' : ''}>基本 ${r.lazarus && r.lazarus !== 'armed' ? '加入中' : Run.lazarusFee(r, 'basic') ? cr(Run.lazarusFee(r, 'basic')) : ''}</button>
+              <button data-act="lazarus" data-r="${r.id}" data-v="armed" aria-pressed="${r.lazarus === 'armed'}" ${G.run.act < LAZARUS_ARMED.act && r.lazarus !== 'armed' ? `disabled title="第${LAZARUS_ARMED.act}幕から"` : Run.lazarusFee(r, 'armed') > G.money ? 'disabled' : ''}>武装回収 ${r.lazarus === 'armed' ? '加入中' : cr(Run.lazarusFee(r, 'armed'))}${G.run.act < LAZARUS_ARMED.act ? `（第${LAZARUS_ARMED.act}幕から）` : ''}</button>
             </div></div>
         </div>
       </div>
@@ -734,19 +728,31 @@ function viewDoc() {
 
 /* ───────── 記録 ───────── */
 
+/* 通信の行。いつもは結果と描写・セリフ（flavor.js）を出し、ダイスの計算（.calc）と数字の内訳は
+   「ダイスを見る」を押したときだけ出す（body.show-dice。prefs.dice に残す） */
 function logLines(lines, animate) {
   return lines.map((l) => {
     const at = ` data-ph="${l.ph ?? ''}" data-lane="${l.lane || ''}"`;
-    if (l.sub) return `<div class="ln sub ${l.kind}${animate ? '' : ' on'}"${at}><span class="what">${esc(l.text)}</span></div>`;
-    const res = l.calc ? `<span class="res">${l.kind === 'ok' ? '成功' : '失敗'}</span>` : '';
+    if (l.sub) {
+      const what = l.brief ? `<span class="what dice-only">${esc(l.text)}</span><span class="what story-only">${esc(l.brief)}</span>` : `<span class="what">${esc(l.text)}</span>`;
+      return `<div class="ln sub ${l.kind}${animate ? '' : ' on'}"${at}>${what}</div>`;
+    }
+    const res = l.calc && ['ok', 'ng'].includes(l.kind)
+      ? `<span class="res">${l.kind === 'ok' ? (l.crit ? '会心' : '成功') : (l.fumble ? '大失敗' : '失敗')}</span>` : '';
+    const fl = Flavor.of(l);
     return `<div class="ln ${l.kind} ${l.lane === 'net' ? 'net' : ''}${l.mad ? ' mad' : ''}${animate ? '' : ' on'}"${at}>
-      <span class="t">${l.t ? `[${l.t}]` : ''}</span>${l.lane === 'net' ? '<span class="lanetag">NET</span>' : ''}<span class="who">${esc(l.who || '')}</span><span class="what">${esc(l.text)}</span>${l.calc ? `<span class="calc">${esc(l.calc)}</span>` : ''}${res}</div>`;
+      <span class="t">${l.t ? `[${l.t}]` : ''}</span>${l.lane === 'net' ? '<span class="lanetag">NET</span>' : ''}<span class="who">${esc(l.who || '')}</span><span class="what">${esc(l.text)}</span>${res}${l.calc ? `<span class="calc">${esc(l.calc)}</span>` : ''}${fl ? `<span class="fl${fl.say ? ' say' : ''}">${esc(fl.text)}</span>` : ''}</div>`;
   }).join('');
 }
+const diceButton = () => `<button data-act="dice" aria-pressed="${!!prefs.dice}" title="判定のダイスと計算を表示する">ダイスを${prefs.dice ? '隠す' : '見る'}</button>`;
+const applyDice = () => {
+  document.body.classList.toggle('show-dice', !!prefs.dice);
+  document.querySelectorAll('[data-act="dice"]').forEach((b) => { b.setAttribute('aria-pressed', !!prefs.dice); b.textContent = `ダイスを${prefs.dice ? '隠す' : '見る'}`; });
+};
 
 function viewLog() {
   if (!G.archive.length) return '<section><h2 class="sec">記録</h2><p class="dim">まだ夜を明かしていません。派遣中に届いた通信がここに残ります。</p></section>';
-  return `<section><h2 class="sec">記録 <span class="label">COMM LOG</span></h2>
+  return `<section><h2 class="sec">記録 <span class="label">COMM LOG</span> ${diceButton()}</h2>
     ${G.archive.map((a, i) => `<details class="arch" ${i === 0 ? 'open' : ''}><summary>夜${a.night}　${a.comms.length ? a.comms.map((c) => esc(c.title)).join('／') : '派遣なし'}</summary>
       ${a.comms.map((c) => `<h4>${esc(c.title)} <span class="dim">${esc(c.route)}・${c.k}/${c.of}夜目</span></h4><div class="log">${logLines(c.lines, false)}</div>`).join('')}
     </details>`).join('')}
@@ -776,7 +782,7 @@ function stepComm(c) {
     ${commStrip(c)}
     <div class="log play">${logLines(c.visibleLines || c.lines, !instantLog()) || '<div class="ln on">（通信なし）</div>'}</div>
     <div class="tail" ${instantLog() ? '' : 'hidden'}>${tail}</div>
-    <div class="mact">${reduced ? '' : speedControl()}<button data-act="skiplog">すべて表示</button><button class="primary" data-act="next">次へ</button></div>`;
+    <div class="mact">${reduced ? '' : speedControl()}${diceButton()}<button data-act="skiplog">すべて表示</button><button class="primary" data-act="next">次へ</button></div>`;
 }
 
 /* 鎮圧班が来たときの3択。暴走した人をどうするか */
@@ -786,14 +792,13 @@ function squadChoice(c) {
     <div class="bonus squad">
       <button data-act="decision" data-v="handover" data-uid="${c.uid}"><span class="label">引き渡す</span>${esc(c.who || '')}は連れていかれ、ランから抜ける（死亡ではなく拘束）。依頼は残りの人数で続く</button>
       <button data-act="decision" data-v="protect" data-uid="${c.uid}"><span class="label">かばう</span>鎮圧班と交戦する（DV・攻撃は基準値+4、4d6+4、${esc(c.who || '')}を先に狙う）。勝てば依頼も続くが、この幕のあいだ全依頼の敵+1</button>
-      <button data-act="decision" data-v="retreat" data-uid="${c.uid}"><span class="label">撤退する</span>全員で引く。${esc(c.who || '')}は連れて帰れるが、依頼は失敗</button>
     </div>`;
 }
 function pendingComm(c) {
-  if (c.kind === 'maxtac') return `<div class="label">通信・鎮圧班</div><h2>${esc(c.title)}</h2>${commStrip(c)}<div class="log play">${logLines(c.lines, !instantLog())}</div><div class="tail" ${instantLog() ? '' : 'hidden'}>${squadChoice(c)}</div>${speedControl()}<button data-act="skiplog">すべて表示</button>`;
+  if (c.kind === 'maxtac') return `<div class="label">通信・鎮圧班</div><h2>${esc(c.title)}</h2>${commStrip(c)}<div class="log play">${logLines(c.lines, !instantLog())}</div><div class="tail" ${instantLog() ? '' : 'hidden'}>${squadChoice(c)}</div>${speedControl()}${diceButton()}<button data-act="skiplog">すべて表示</button>`;
   return '<div class="label">通信・判断待ち（最大2回）</div><h2>'+esc(c.title)+'</h2>'+commStrip(c)+
     '<div class="log play">'+logLines(c.lines,!instantLog())+'</div>'+
-    '<div class="tail" '+(instantLog()?'':'hidden')+'><p class="pink">'+esc(c.reason)+'</p><p>続行は残りを判定。撤退は報酬なし、標的ヒートは失敗時と同じ。毎晩の支払いは通常どおりです。</p><div class="mact"><button class="primary" data-act="decision" data-v="yes" data-uid="'+c.uid+'">続行</button><button data-act="decision" data-v="no" data-uid="'+c.uid+'">撤退</button></div></div>'+speedControl()+'<button data-act="skiplog">すべて表示</button>';
+    '<div class="tail" '+(instantLog()?'':'hidden')+'><div class="mact"><button class="primary" data-act="decision" data-v="go" data-uid="'+c.uid+'">次へ</button></div></div>'+speedControl()+diceButton()+'<button data-act="skiplog">すべて表示</button>';
 }
 
 function speedControl() {
@@ -914,9 +919,8 @@ function stepChoice() {
 
 function stepReport(out) {
   return `<div class="label">夜明け ・ 夜${out.night}</div>
-    <h2>毎晩、確実に出ていく</h2>
-    <dl class="ledger">${out.upkeep.map(([l, v]) => `<div><dt>${esc(l)}</dt><dd class="num pink">−${fmt(v)}</dd></div>`).join('')}
-      <div class="tot"><dt>合計</dt><dd class="num pink">−${fmt(out.upkeepTotal)}cr</dd></div>
+    <h2>夜が明けた</h2>
+    <dl class="ledger">
       <div class="tot"><dt>所持金</dt><dd class="num ${G.money < 0 ? 'pink' : ''}">${cr(G.money)}</dd></div></dl>
     <h3>ヒート</h3>
     <div class="heatlist">${out.heat.map(([c, v, dv]) => `<div class="hrow ${v >= 80 ? 'hot' : ''}"><span>${CLIENTS[c].name}</span><div class="ht"><i style="width:${v}%"></i></div><b class="num">${v}</b><span class="num delta ${dv > 0 ? 'pink' : 'dim'}">${dv > 0 ? '+' : dv < 0 ? '−' : '±'}${Math.abs(dv)}</span></div>`).join('')}</div>
@@ -1147,7 +1151,7 @@ function epilogue(r) {
 const RUN_ENDS = {
   bankrupt: { title: '廃業', body: ['3夜続けて、所持金がマイナスのままだった。', '貸元の取り立て屋が隠れ家の鍵を付け替えていった。残ったランナーたちは、別のフィクサーの番号を探し始めている。'] },
   wipe: { title: '全滅', body: ['隠れ家に戻ってくる者が、もう誰もいない。', '通信機は朝まで鳴らなかった。あなたは撃たないフィクサーのまま、ひとりで夜明けを迎えた。'] },
-  boss: { title: '大仕事に失敗', body: ['二度目の大仕事も、届かなかった。', '箱は手の中にあるのに、もう開ける手立てがない。湾岸の噂は、新人フィクサーの名前をすぐに忘れた。'] },
+  boss: { title: '大仕事に失敗', body: ['大仕事は、届かなかった。やり直しの利く仕事ではなかった。', '箱は手の中にあるのに、もう開ける手立てがない。湾岸の噂は、新人フィクサーの名前をすぐに忘れた。'] },
 };
 
 /* 地区マップでたどった行き先を、幕ごとに並べる */
@@ -1166,7 +1170,7 @@ function lossReasons() {
   const why = {
     bankrupt: '所持金が3夜続けてマイナスになった',
     wipe: '隊が全滅した',
-    boss: `${Run.ACTS[run.act].name}の大仕事に2度失敗した`,
+    boss: `${Run.ACTS[run.act].name}の大仕事に失敗した`,
   }[t] || '';
   const items = [why && `<li><b>${why}</b></li>`];
   for (const l of (t === 'boss' ? bossLoss : last ? [last] : [])) items.push(`<li>夜${l.night}「${esc(l.title)}」：${esc(l.reason || '失敗')}</li>`);
@@ -1405,6 +1409,7 @@ const H_ = {
     document.querySelectorAll('[data-act="sound"]').forEach((x) => { x.textContent = fresh.textContent; x.setAttribute('aria-pressed', fresh.getAttribute('aria-pressed')); });
   },
   hints() { prefs.hints = !prefs.hints; savePrefs(); applyHints(); render(); },
+  dice() { prefs.dice = !prefs.dice; savePrefs(); applyDice(); },
   help() { UI.help = true; render(); },
   closehelp() { UI.help = false; render(); },
   treat(b) { act(() => treat(getR(+b.dataset.r))); },
@@ -1419,7 +1424,7 @@ const H_ = {
     const ctx=G.missions.find(m=>m.uid===+b.dataset.uid)?.progress;
     if(!ctx?.waiting)return;
     const v=b.dataset.v;
-    stopLog(); missionDecision(+b.dataset.uid,v==='yes'?true:v==='no'?false:v); H_.night();
+    stopLog(); missionDecision(+b.dataset.uid,v); H_.night();
   },
   night() {
     if (!Run.canEndNight()) { toast('地区マップで今夜の行き先を決めてください'); UI.tab = 'home'; render(); return; }
@@ -1498,6 +1503,7 @@ document.addEventListener('click', (e) => {
 function boot(data) {
   City.init();
   applyHints();
+  applyDice();
   if (data && data.G) {
     G = World.init(data.G);
     Object.assign(UI, data.UI || {});

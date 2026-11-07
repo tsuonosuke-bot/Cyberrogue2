@@ -102,10 +102,10 @@ const Run = (() => {
     return null;
   }
 
-  /* 敵のDV・攻撃の上乗せ。幕のなかで夜が進むほど上がる（幕の頭+0、終わりごろ+1）。幕ごとの差は ACT_THREAT でならす。
-     大仕事の夜は+1に、BOSS_THREAT を足す。第3幕の大仕事をいちばんの壁にする */
-  const ACT_THREAT = { 1: 0, 2: -1, 3: 2 };
-  const BOSS_THREAT = { 1: 1, 2: 5, 3: 5 };
+  /* 敵のDV・攻撃の上乗せ。幕のなかで夜が進むほど上がる（幕の頭+0、終わりごろ+2）。幕ごとの差は ACT_THREAT でならす。
+     大仕事の夜は+2に、BOSS_THREAT を足す。大仕事は一発勝負なので第1幕のボスは軽くし、第2幕・第3幕はふつうの依頼から重くする */
+  const ACT_THREAT = { 1: 0, 2: 0, 3: 3 };
+  const BOSS_THREAT = { 1: 0, 2: 4, 3: 4 };
   const threat = () => ACT_THREAT[R().act] + Math.min(2, Math.floor((3 * (R().slot - 1)) / LAST)) + (R().slot === BOSS_SLOT ? BOSS_THREAT[R().act] - ((R().rooms || {}).terminal >= 3 ? 2 : 0) : 0);
 
   /* ───────── 臨時雇い ───────── */
@@ -145,18 +145,19 @@ const Run = (() => {
 
   /* ───────── 地区マップ ───────── */
 
-  /* 夜ごとの縛り。どれも「この中から1つ以上」。毎夜、依頼が1つはある。4夜目と8夜目は休める行き先を混ぜる */
+  /* 夜ごとの縛り。どれも「この中から1つ以上」。毎夜、依頼が1つはある。4夜目・8夜目・9夜目は休める行き先を混ぜる。
+     9夜目は大仕事の前の準備の夜で、8夜目のどこからでも、9夜目のどの行き先にも行ける */
   function needs(a, slot) {
     const g = [['job', 'hard']];
     if (slot === 1 && a === 1) g.push(['alley']);
-    if (slot === 4 || slot === 8) g.push(['hideout', 'doc']);
+    if (slot === 4 || slot === 8 || slot === LAST) g.push(['hideout', 'doc']);
     return g;
   }
 
-  /* 依頼の型紙。大仕事の前の夜は、大仕事に食い込まないよう1夜の依頼だけ */
+  /* 依頼の型紙。8夜目・9夜目は、準備の夜（9夜目）と大仕事に食い込まないよう1夜の依頼だけ */
   function jobTemplate(type, a, slot) {
     const rank = type === 'hard' ? Math.min(a + 1, 3) : a;
-    const fits = JOBS.filter((t) => t.rank === rank && (slot < LAST || t.nights === 1));
+    const fits = JOBS.filter((t) => t.rank === rank && (slot < LAST - 1 || t.nights === 1));
     if (!fits.length) return null;
     const fresh = fits.filter((t) => !R().used.includes(t.id));
     const t = pick(fresh.length ? fresh : fits);
@@ -217,6 +218,7 @@ const Run = (() => {
       if (i >= 0) row[i] = node; else if (row.length < 4) row.push(node); else row[row.length - 1] = node;
     }
     for (let s = 1; s < BOSS_SLOT; s++) link(map[s], map[s + 1]);
+    for (const n of map[LAST - 1]) n.to = map[LAST].map((_, i) => i);
     return map;
   }
 
@@ -265,7 +267,7 @@ const Run = (() => {
 
   function start(g, bg = 'solo', opt = {}) {
     if (!BACKGROUNDS[bg]) bg = 'solo';
-    g.run = { bg, corp: null, rerolls: opt.first ? 0 : FIRST_RUN_REROLLS, wanted: 0, deserters: [], custody: [], act: 1, slot: 1, map: null, picked: {}, pos: null, tonight: null, retried: false, used: [], taken: [], event: null, history: [], recorded: false };
+    g.run = { bg, corp: null, rerolls: opt.first ? 0 : FIRST_RUN_REROLLS, wanted: 0, deserters: [], custody: [], act: 1, slot: 1, map: null, picked: {}, pos: null, tonight: null, used: [], taken: [], event: null, history: [], recorded: false };
     g.rank = 1;
     G = g;
     const B = BACKGROUNDS[bg];
@@ -352,22 +354,27 @@ const Run = (() => {
 
   /* ───────── ラザロ ───────── */
 
-  /* 闇医者で入るラザロのプラン。plan は null（なし）・'basic'（基本）・'armed'（武装回収、第2幕から） */
+  /* 闇医者で入るラザロのプラン。plan は null（なし）・'basic'（基本）・'armed'（武装回収、第2幕から）。
+     加入料はその場で1回だけ。上のプランに替えるときは差額、下げる・やめるときは戻らない */
+  const lazarusPrice = (plan) => (plan === 'armed' ? LAZARUS_ARMED.fee : plan === 'basic' ? LAZARUS_FEE : 0);
+  function lazarusFee(r, plan) { return Math.max(0, lazarusPrice(plan) - lazarusPrice(r.lazarus)); }
   function setLazarus(r, plan) {
     if (plan === 'armed' && R().act < LAZARUS_ARMED.act) return `武装回収は第${LAZARUS_ARMED.act}幕から入れます`;
     if (plan && !['basic', 'armed'].includes(plan)) return 'プランが見つかりません';
+    const fee = lazarusFee(r, plan);
+    if (fee > G.money) return '所持金が足りません';
+    G.money -= fee;
     r.lazarus = plan || false;
     return null;
   }
 
   /* ───────── 行き先を選ぶ ───────── */
 
-  /* 幕の大仕事。挑み直すときは、前に削ったボスの耐久（bossLeft）を引き継ぐ */
+  /* 幕の大仕事 */
   function bossJob() {
     const t = clone(RUN_JOBS[BOSS[R().act]()]);
     t.rank = R().act;
     t.runBoss = true;
-    if (R().bossLeft != null) t.bossLeft = R().bossLeft;
     return t;
   }
 
@@ -418,7 +425,7 @@ const Run = (() => {
   // 依頼が出るたびに、型紙のルートの判定のDVと、敵の数・種類を少し変える。ICEの位置・目標の数・必須ロールは変えない。
   // 3分の1ほどの依頼には、型紙のルートを作り替えた3本目が加わる（強行：隠密と説得を交戦に／裏道：交戦を隠密に）
   const ROUTE_EXTRA = 0.35;
-  const PAY_SCALE = 0.7; // 依頼の報酬は型紙の7割（1幕10夜でお金が余りすぎないように）
+  const PAY_SCALE = 0.6; // 依頼の報酬は型紙の6割（お金で強くなりすぎないように。固定費をなくした分も締める）
   const jobPay = (p) => Math.round((p * PAY_SCALE) / 50) * 50;
   const ENEMY_KINDS = { 1: ['standard', 'swarm', 'sniper'], 2: ['standard', 'swarm', 'sniper', 'armored', 'hacker'], 3: ['standard', 'swarm', 'sniper', 'armored', 'hacker'] };
   function varyPhase(p, rank) {
@@ -725,7 +732,6 @@ const Run = (() => {
     dropIdleTemps();
     const ongoing = G.missions[0]; // 精算の済んだ派遣は外れている。残っていれば2夜目に続く
     const boss = out.settle.find((s) => s.runBoss);
-    const skippedBoss = run.tonight && run.tonight.type === 'boss' && G.board.some((j) => j.uid === run.tonight.uid);
     G.board = []; G.scouts = [];
     if (run.event && run.event.done) out.events.push({ kind: 'ok', text: `${EVENTS[run.event.key].title}：${run.event.done}` });
     run.event = null;
@@ -740,20 +746,14 @@ const Run = (() => {
     if (G.ended) return finish();
     if (!G.runners.length) { G.ended = { type: 'wipe' }; return finish(); }
     if (run.slot === BOSS_SLOT) {
-      if (ongoing && ongoing.job.runBoss) return force('cont'); // 大仕事の2夜目は幕の夜数に数えない
       if (boss && boss.success) {
         (run.actsCleared ||= []).push(run.act);
         if (run.act === 3) { run.cleared = true; return; } // 結末の選択は awaitEnding で出る
         return nextAct(out);
       }
-      if (boss || skippedBoss) {
-        if (run.retried || run.danger >= 5) { G.ended = { type: 'boss' }; return finish(); } // 危険度5は挑み直しがない
-        run.retried = true;
-        if (boss && boss.bossLeft != null) run.bossLeft = boss.bossLeft;
-        out.events.push({ kind: 'ng', text: `${act().name}の大仕事に失敗した。次の夜に一度だけ挑み直せる（この夜は幕の夜数に数えない）` });
-        return force('boss');
-      }
-      return force('boss');
+      // 大仕事は一発勝負。失敗しても、送り出さなくても、ランは終わる
+      G.ended = { type: 'boss' };
+      return finish();
     }
     run.slot++;
     if (ongoing) return force('cont'); // 2夜依頼がこの夜を使う
@@ -773,8 +773,7 @@ const Run = (() => {
 
   function nextAct(out) {
     const run = R();
-    run.act++; run.slot = 1; run.retried = false; run.picked = {}; run.pos = null;
-    delete run.bossLeft;
+    run.act++; run.slot = 1; run.picked = {}; run.pos = null;
     if (run.bg === 'net') G.vouchers.intel += 1;
     if ((run.rooms || {}).terminal >= 2) G.vouchers.intel += 1;
     run.map = genMap(run.act);
@@ -822,7 +821,7 @@ const Run = (() => {
     if (n.type === 'boss') {
       const id = R().act > 1 && !G.flags.ally ? null : BOSS[R().act]();
       const t = id && RUN_JOBS[id];
-      if (t) Object.assign(info, { title: t.title, client: t.client, target: t.target, nights: t.nights, payout: t.payout, req: t.req, boss: t.boss, bossLeft: R().bossLeft });
+      if (t) Object.assign(info, { title: t.title, client: t.client, target: t.target, nights: t.nights, payout: t.payout, req: t.req, boss: t.boss });
       else info.title = '組んだ社で決まる';
     }
     return info;
@@ -843,5 +842,5 @@ const Run = (() => {
     return k ? GOALS[k] : fallback;
   };
 
-  return { BACKGROUNDS, BOSS, crew, crewOf, checkParts, addDeserter, deserterDone, options, setLazarus, bossJob, REWARD_CR, SKIP_CR, makeReward, takeReward, cyberTakers, ACTS, DEST, EVENTS, INTRO, storyGoal, NIGHTS, BOSS_SLOT, start, genMap, mapView, reachable, crewTypes, routeBars, recommendRoute, choose, threat, rerollCrew, canReroll, tempHire, tempFee, tempDone, walkins, hireWalkin, walkinFee, resolveEvent, nextNight, nodeInfo, tonightTab, canEndNight, loadMeta, finish, depth, act };
+  return { BACKGROUNDS, BOSS, crew, crewOf, checkParts, addDeserter, deserterDone, options, setLazarus, lazarusFee, bossJob, REWARD_CR, SKIP_CR, makeReward, takeReward, cyberTakers, ACTS, DEST, EVENTS, INTRO, storyGoal, NIGHTS, BOSS_SLOT, start, genMap, mapView, reachable, crewTypes, routeBars, recommendRoute, choose, threat, rerollCrew, canReroll, tempHire, tempFee, tempDone, walkins, hireWalkin, walkinFee, resolveEvent, nextNight, nodeInfo, tonightTab, canEndNight, loadMeta, finish, depth, act };
 })();

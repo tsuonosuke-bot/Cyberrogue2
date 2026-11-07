@@ -309,6 +309,12 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); }
 .ln.goal .what { font-weight: 700; }
 .ln.sub { padding-left: 62px; font-size: 12px; }
 .ln.sub.ng .what { color: var(--log-ng); }
+/* 描写とセリフは行の下に1段下げて出す。ダイスの計算と数字の内訳は「ダイスを見る」のときだけ */
+.ln .fl { flex-basis: 100%; padding-left: 62px; font-family: var(--body); color: var(--log-dim); font-size: 12.5px; }
+.ln .fl.say { color: var(--log-fg); }
+.ln.mad .fl { color: var(--log-ng); }
+body:not(.show-dice) .ln .calc, body:not(.show-dice) .ln .dice-only { display: none; }
+body.show-dice .ln .story-only { display: none; }
 .lanetag { font-family: var(--dot); font-size: 10.5px; color: var(--log-ok); border: 1px solid currentColor; padding: 0 4px; line-height: 1.4; }
 .arch { background: var(--panel); border-top: 1px solid var(--rule); padding: 10px 14px; display: grid; gap: 8px; }
 .arch summary { cursor: pointer; font-weight: 700; }
@@ -390,7 +396,7 @@ button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); }
   .hb .ht { grid-column: 1 / -1; order: 3; height: 4px; }
   .tabs button { padding-inline: 11px; font-size: 13.5px; }
   .ln .t { min-width: 0; }
-  .ln.sub { padding-left: 14px; }
+  .ln.sub, .ln .fl { padding-left: 14px; }
   .est b { font-size: 24px; }
   .dock-in { flex-wrap: nowrap; gap: 10px; padding-block: 8px; }
   .proj small { display: none; }

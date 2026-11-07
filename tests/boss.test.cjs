@@ -64,8 +64,7 @@ test('元ソロ: +1 to shooting only in the first round of a fight',()=>{
 test('元ネットランナー: one free intel at the start of every act',()=>{
   const run=game({bg:'net'});
   assert.equal(run('G.vouchers.intel'),1);
-  run(`G.run.slot=Run.BOSS_SLOT;G.run.tonight={type:'boss'};G.board=[];endNight();`); // 第1幕の大仕事を落としても幕は進まない
-  run(`G.run.act=1;G.run.slot=Run.BOSS_SLOT;G.run.retried=false;Run.nextNight({settle:[{runBoss:true,success:true}],events:[],story:[]});`);
+  run(`G.run.act=1;G.run.slot=Run.BOSS_SLOT;Run.nextNight({settle:[{runBoss:true,success:true}],events:[],story:[]});`);
   assert.equal(run('G.run.act===2 && G.vouchers.intel'),2);
 });
 
@@ -161,23 +160,23 @@ test('被検体: a talk at DV18 ends it without a shot, and the run remembers it
   assert.equal(run('G.flags.spared'),true);
 });
 
-test('保守主任: three layers of black ICE, a physical cut as the fallback, broken layers stay broken',()=>{
+test('保守主任: three layers of black ICE, a physical cut as the fallback, one more layer at danger 5',()=>{
   const net=game({fixed:.5});
   net(`const ctx=fight(3,[BS('keeper','回線')],{field:[who('solo')],support:[],net:[who('net',{INT:10},{インターフェース:10})]});`);
   assert.equal(net('said(ctx,"黒ICE 第")+"|"+ctx.bossDown'),'3|true');
   const cut=game({fixed:.5});
   cut(`const ctx=fight(3,[BS('keeper','回線')],{field:[who('solo')],support:[who('tech',{TECH:10},{電子:10})],net:[who('net',{INT:1})]});`);
   assert.equal(cut('said(ctx,"黒ICE 第1層")+"|"+said(ctx,"黒ICEの逆流")+"|"+said(ctx,"物理的に切る")+"|"+ctx.bossDown'),'1|1|1|true');
-  const again=game({fixed:.5});
-  again(`const j={rank:3,district:'upper',intel:true,tags:[],bossLeft:1,routes:[{field:[BS('keeper','回線')],net:[null]}]};
-    const ctx=missionContext(j,0,{field:[who('solo')],support:[],net:[who('net',{INT:10},{インターフェース:10})]},false);runMission(ctx);`);
-  assert.equal(again('said(ctx,"黒ICE 第3層")===1 && said(ctx,"黒ICE 第1層")===0 && ctx.bossDown'),true);
+  const hard=game({fixed:.5});
+  hard(`G.run.danger=5;const ctx=fight(3,[BS('keeper','回線')],{field:[who('solo')],support:[],net:[who('net',{INT:10},{インターフェース:10})]});`);
+  assert.equal(hard('said(ctx,"残り4層")'),1);
+  assert.equal(game({fixed:.5})(`bossHits(RUN_BOSSES.keeper)`),3);
 });
 
-test('a failed big job keeps the damage done to the boss for the retry',()=>{
+test('a failed big job ends the run at once — there is no retry',()=>{
   const run=game();
   run(`G.run.slot=Run.BOSS_SLOT;G.run.tonight={type:'boss'};G.board=[];Run.nextNight({settle:[{runBoss:true,success:false,bossLeft:1}],events:[],story:[]});`);
-  assert.equal(run('G.run.retried && G.run.bossLeft===1 && G.board[0].bossLeft===1 && G.board[0].runBoss'),true);
+  assert.equal(run('G.ended && G.ended.type'),'boss');
 });
 
 test('a beaten boss drops its item into the reward; a boss that was not beaten does not',()=>{

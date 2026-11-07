@@ -25,7 +25,7 @@ test('a new run starts at act 1 night 1 with no debt and a ten-night map that en
   assert.equal(run('G.run.act===1 && G.run.slot===1 && G.run.tonight===null && G.money===3000'),true);
   assert.equal(run('Run.NIGHTS===10 && Run.BOSS_SLOT===10 && G.run.map[10].length===1 && G.run.map[10][0].type==="boss"'),true);
   assert.equal(run('G.run.map[1].length===3 && G.run.map[9].length===2 && [2,3,4,5,6,7,8].every(s=>G.run.map[s].length>=2&&G.run.map[s].length<=4)'),true);
-  assert.equal(run('upkeepItems().map(x=>x[0]).join()'),'隠れ家代'); // 借金も設備の維持費もない
+  assert.equal(run('typeof upkeepItems'),'undefined'); // 借金も毎晩の固定費もない
 });
 
 test('every generated act honours the per-night rules and every location is connected',()=>{
@@ -43,9 +43,11 @@ test('every generated act honours the per-night rules and every location is conn
       }
       if (a===1) assert.equal([1,2,3,4,5,6,7,8,9].some(s=>has(s,['hard'])),false,`seed ${seed}: no dangerous jobs in act 1`);
       if (a===1) assert.equal(has(1,['alley']),true,`seed ${seed}: act 1 offers the alley on night 1`);
-      assert.ok(has(4,['hideout','doc']) && has(8,['hideout','doc']),`seed ${seed} act ${a}: nights 4 and 8 let you recover`);
-      // 9夜目の依頼は1夜で終わる（大仕事に食い込まない）
-      assert.equal(run(`${JSON.stringify(m[9])}.filter(n=>n.tpl).every(n=>JOBS.find(t=>t.id===n.tpl).nights===1)`),true);
+      assert.ok(has(4,['hideout','doc']) && has(8,['hideout','doc']) && has(9,['hideout','doc']),`seed ${seed} act ${a}: nights 4, 8 and 9 let you recover`);
+      // 9夜目は準備の夜。8夜目のどこからでも、9夜目のどの行き先にも行ける
+      assert.ok(m[8].every(n=>n.to.length===m[9].length),`seed ${seed} act ${a}: night 9 is open from every night-8 stop`);
+      // 8夜目と9夜目の依頼は1夜で終わる（準備の夜と大仕事に食い込まない）
+      assert.equal(run(`${JSON.stringify([...m[8],...m[9]])}.filter(n=>n.tpl).every(n=>JOBS.find(t=>t.id===n.tpl).nights===1)`),true);
       const all=[1,2,3,4,5,6,7,8,9].flatMap(s=>m[s]);
       assert.equal(run(`${JSON.stringify(all)}.filter(n=>n.tpl).every(n=>JOBS.find(t=>t.id===n.tpl).rank===(n.type==='hard'?Math.min(${a}+1,3):${a}))`),true);
     }
@@ -109,13 +111,11 @@ test('a two-night job uses up the next night, which cannot be chosen',()=>{
   assert.equal(run('G.run.slot===3 && G.run.tonight===null && G.missions.length===0'),true);
 });
 
-test('night 10 is the big job; one failure allows a retry that does not count, a second ends the run',()=>{
+test('night 10 is the big job; it is one shot — not sending anyone ends the run',()=>{
   const {run,storage}=game();
   run('G.run.slot=Run.BOSS_SLOT-1; Run.choose(0); endNight();');
   assert.equal(run('G.run.slot===Run.BOSS_SLOT && G.run.tonight.type==="boss" && G.board[0].runBoss && G.board[0].rank===1'),true);
   run('endNight();'); // 送り出さずに夜を明かすと失敗
-  assert.equal(run('!G.ended && G.run.retried && G.run.slot===Run.BOSS_SLOT && G.board.length===1 && G.board[0].runBoss'),true);
-  run('endNight();');
   assert.equal(run('G.ended.type'),'boss');
   assert.equal(JSON.parse(storage.get('fixers-cut-meta-v1')).runs,1);
   assert.equal(run('loadSave()'),null); // 終わったランは続きから始められない
@@ -132,12 +132,9 @@ test('winning the act-1 big job asks for an ally, then act 2 brings that ally’
 
 test('act 3 opens on the ally’s coordinator chapter; clearing it ends the run as a clear',()=>{
   const {run,storage}=game();
-  run(`G.flags.ally='hakurou'; G.run.act=2; G.rank=2; G.run.slot=Run.BOSS_SLOT; G.run.tonight={type:'boss'}; G.board.push(addJob(Object.assign(clone(RUN_JOBS.run_cargo_hakurou),{rank:2,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true,2)}; var out=endNight();`);
-  // camp3 は2夜。2夜目は幕の夜数に数えない
-  assert.equal(run('G.run.act===2 && G.run.slot===Run.BOSS_SLOT && G.run.tonight.type==="cont"'),true);
-  run('out=endNight();');
+  run(`G.flags.ally='hakurou'; G.run.act=2; G.rank=2; G.run.slot=Run.BOSS_SLOT; G.run.tonight={type:'boss'}; G.board.push(addJob(Object.assign(clone(RUN_JOBS.run_cargo_hakurou),{rank:2,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true)}; var out=endNight();`);
   assert.equal(run('G.run.act===3 && G.chapter==="coordinator_hakurou" && out.story.includes("coordinator_hakurou")'),true);
-  run(`G.run.slot=Run.BOSS_SLOT; G.run.tonight={type:'boss'}; G.board.push(addJob(Object.assign(clone(RUN_JOBS.run_box_hakurou),{rank:3,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true,2)}; endNight(); endNight();`);
+  run(`G.run.slot=Run.BOSS_SLOT; G.run.tonight={type:'boss'}; G.board.push(addJob(Object.assign(clone(RUN_JOBS.run_box_hakurou),{rank:3,runBoss:true}),true)); G.board.pop(); ${send}; ${settleAs(true)}; endNight();`);
   assert.equal(run('G.awaitEnding===true && G.run.cleared'),true);
   run(`chooseEnding('publish');`);
   const meta=JSON.parse(storage.get('fixers-cut-meta-v1'));
